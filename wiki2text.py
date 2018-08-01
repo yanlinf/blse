@@ -6,18 +6,19 @@ import multiprocessing
 
 
 def main(args):
-	"""
-	args: argparse.Namespace object
+    """
+    args: argparse.Namespace object
 
-	Returns: None
-	"""
+    Returns: None
+    """
     logger = logging.getLogger(__name__)
     logging.basicConfig(format='%(asctime)s: %(levelname)s: %(message)s')
     logging.root.setLevel(level=logging.INFO)
     
     # load wiki corpus from a .xml.bz2 file
-    wiki = WikiCorpus(args.infile, lemmatize=False,
-    							   processes=multiprocessing.cpu_count())
+
+    wiki = WikiCorpus(args.infile, lemmatize=False, 
+            processes=multiprocessing.cpu_count())
 
     # parse documents from the corpus and write to the output file
     with open(args.outfile, 'w', encoding='utf-8') as fout:
