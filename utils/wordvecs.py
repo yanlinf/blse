@@ -39,7 +39,7 @@ class WordVecs(object):
             vocab_length, vec_dim = [int(i) for i in txt[0].split()]
             txt = txt[1:]
         elif self.file_type == 'bin':
-            txt = open(file, 'rb', encoding=self.encoding)
+            txt = open(file, 'rb')
             header = txt.readline()
             vocab_length, vec_dim = map(int, header.split())
             binary_len = np.dtype('float32').itemsize * vec_dim
