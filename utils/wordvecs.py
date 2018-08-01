@@ -14,7 +14,6 @@ class WordVecs(object):
     in the 'vocab' parameter.
     """
 
-
     def __init__(self, file, file_type='word2vec', vocab=None, encoding='utf8'):
         self.file_type = file_type
         self.vocab = vocab
