@@ -1,3 +1,9 @@
+"""
+utils for loading binary Word2Vec, bilingual dictionary and OpeNER sentiment dataset. 
+
+author: fyl
+"""
+
 import numpy as np
 from scipy.spatial.distance import cosine
 import csv
@@ -77,6 +83,19 @@ class WordVecs(object):
         idx2w = {i: w for w, i in w2idx.items()}
         return vocab_size, vec_dim, emb_matrix, w2idx, idx2w
 
+    def word2index(self, word):
+        """
+        Lookup the index of the word in the vocabulary.
+        """
+        try:
+            return self._w2idx[word]
+        except KeyError:
+            raise KeyError('Word not in vocabulary')
+
+    @property
+    def embedding(self):
+        return self._matrix
+
     def most_similar(self, word, num_similar=5):
         """
         Returns the k most similar word to the given word.
@@ -127,8 +146,8 @@ class BilingualDict(object):
     def __init__(self, infile):
         with open(infile, 'r', encoding='utf-8') as fin:
             csvin = csv.reader(fin, delimiter='\t')
-            self.full_dic = [row for row in csvin if len(row) == 2]
-            self._lookup = dict(self.full_dic)
+            self.dictionary = [row for row in csvin if len(row) == 2]
+            self._lookup = dict(self.dictionary)
 
     def __getitem__(self, word):
         """
@@ -146,10 +165,10 @@ class BilingualDict(object):
 
         Retunrs: self
         """
-        self.full_dic = [row for row in self.full_dic if filter_func(row)]
+        self.dictionary = [row for row in self.dictionary if filter_func(row)]
         return self
 
-    def to_index(self, source_wordvec, target_wordvec):
+    def get_indexed_dictionary(self, source_wordvec, target_wordvec):
         """
         source_wordvec: WordVecs object
         target_wordvec: WordVecs object
@@ -157,10 +176,10 @@ class BilingualDict(object):
         Returns: numpy.ndarray of shape (dicsize, 2)
         """
         dic_in_index = []
-        for src_word, tgt_word in dictionary:
+        for src_word, tgt_word in self.dictionary:
             try:
-                src_id = source_wordvec[src_word]
-                tgt_id = target_wordvec[tgt_word]
+                src_id = source_wordvec.word2index(src_word)
+                tgt_id = target_wordvec.word2index(tgt_word)
             except KeyError:
                 continue
             dic_in_index.append([src_id, tgt_id])
@@ -201,3 +220,27 @@ class SentimentDataset(object):
         self.train = load(os.path.join(directory, 'train'))
         self.dev = load(os.path.join(directory, 'dev'))
         self.test = load(os.path.join(directory, 'test'))
+
+    def to_index(self, source_wordvec, target_wordvec):
+        """
+        source_wordvec: WordVecs object
+        target_wordvec: WordVecs object
+
+        Returns: None
+        """
+        def sents2index(X, y):
+            X_new = []
+            for sent in X:
+                sent_new = []
+                for word in sent:
+                    try:
+                        sent_new.append(source_wordvec.word2index(word))
+                    except KeyError:
+                        continue
+                X_new.append(sent_new)
+            return X_new, y
+
+        self.train = sents2index(*self.train)
+        self.dev = sents2index(*self.dev)
+        self.test = sents2index(*self.test)
+        return self
