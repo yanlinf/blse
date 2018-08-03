@@ -117,14 +117,12 @@ def main():
 
     source_emb, target_emb = get_projected_embeddings(
         source_original_emb, target_original_emb)
-
     global_step = tf.Variable(0,
                               dtype=tf.int32,
                               trainable=False,
                               name='global_step')
-
     loss = get_full_loss(source_emb, target_emb,
-                              dictionary, senti_dataset.train[0], train_labels)
+                         dictionary, senti_dataset.train[0], train_labels)
     pred = get_prediction(source_emb, senti_dataset.test[0])
     accu = tf.metrics.accuracy(test_labels, pred)
     optimizer = tf.train.AdamOptimizer(
@@ -134,16 +132,29 @@ def main():
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         for epoch in range(args.epochs):
+            if args.debug:
+                print('training')
+
             loss_, _ = sess.run([loss, optimizer], feed_dict={
                 source_original_emb: source_wordvec.embedding,
                 target_original_emb: target_wordvec.embedding,
                 train_labels: senti_dataset.train[1],
-                dictionary: dict_obj})
+                dictionary: dict_obj, })
+
+            if args.debug:
+                print('computing test accuracy')
+
             accu_ = sess.run(accu, feed_dict={
                 source_original_emb: source_wordvec.embedding,
-                test_labels: senti_dataset.test[1]})
+                test_labels: senti_dataset.test[1],
+
+                train_labels: senti_dataset.train[1],
+                target_original_emb: target_wordvec.embedding,
+                dictionary: dict_obj, })
+
             print('epoch: %d    loss: %d    accuracy: %d' %
                   (epoch, loss_, accu_))
+
             if (epoch + 1) % 10 == 0:
                 saver.save(sess, './checkpoints/blse', global_step=global_step)
 
