@@ -110,7 +110,8 @@ def main():
             loss_, _ = sess.run([loss, optimizer], feed_dict={
                              source_original_emb: source_wordvec.embedding, target_original_emb: target_wordvec.embedding})
             print('[epoch %d]     loss: %d' % (epoch, loss_))
-        saver.save(sess, './checkpoints/blse')
+            if (epoch + 1) % 5 == 0:
+                saver.save(sess, './checkpoints/blse', global_step=global_step)
 
 
 if __name__ == '__main__':
