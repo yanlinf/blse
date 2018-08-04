@@ -83,6 +83,26 @@ class WordVecs(object):
         idx2w = {i: w for w, i in w2idx.items()}
         return vocab_size, vec_dim, emb_matrix, w2idx, idx2w
 
+    def add_word(self, word, vec):
+        """
+        Add a new word and its vector representation to the embedding matrix, then assign
+        an index to this word.
+
+        word: str
+        vec: np.array of shape (vec_dim,)
+
+        Returns: int
+            index of the new word
+        """
+        if word in self._w2idx:
+            raise ValueError('Word already in vocabulary')
+        new_id = len(self._w2idx)
+        self._w2idx[word] = new_id
+        self._idx2w[new_id] = word
+        self._matrix = np.concatenate(
+            (self._matrix, vec.reshape(1, self.vec_dim)), axis=0)
+        return new_id
+
     def word2index(self, word):
         """
         Lookup the index of the word in the vocabulary.
