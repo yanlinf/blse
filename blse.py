@@ -131,6 +131,7 @@ def main():
     saver = tf.train.Saver()
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
         for epoch in range(args.epochs):
             if args.debug:
                 print('training')
@@ -139,6 +140,7 @@ def main():
                 source_original_emb: source_wordvec.embedding,
                 target_original_emb: target_wordvec.embedding,
                 train_labels: senti_dataset.train[1],
+                test_labels: senti_dataset.test[1],
                 dictionary: dict_obj, })
 
             if args.debug:
