@@ -105,7 +105,7 @@ def main():
         lambda x: x[0] != '-').get_indexed_dictionary(source_wordvec, target_wordvec)
 
     senti_dataset = utils.SentimentDataset(
-        args.sentiment_dataset).to_index(source_wordvec, target_wordvec)
+        args.sentiment_dataset).to_index(source_wordvec)
 
     source_original_emb = tf.placeholder(
         tf.float32, shape=(None, args.vec_dim))
@@ -124,18 +124,20 @@ def main():
     loss = get_full_loss(source_emb, target_emb,
                          dictionary, senti_dataset.train[0], train_labels)
     pred = get_prediction(source_emb, senti_dataset.test[0])
-    accu = tf.metrics.accuracy(test_labels, pred)
+
+    print(pred.shape)
+
+    acc = tf.reduce_mean(tf.to_float(pred == test_labels))
     optimizer = tf.train.AdamOptimizer(
         args.alpha).minimize(loss, global_step=global_step)
+    
+    print(senti_dataset.test[1])
 
     saver = tf.train.Saver()
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
         for epoch in range(args.epochs):
-            if args.debug:
-                print('training')
-
             loss_, _ = sess.run([loss, optimizer], feed_dict={
                 source_original_emb: source_wordvec.embedding,
                 target_original_emb: target_wordvec.embedding,
@@ -143,21 +145,12 @@ def main():
                 test_labels: senti_dataset.test[1],
                 dictionary: dict_obj, })
 
-            if args.debug:
-                print('computing test accuracy')
-
-            accu_, = sess.run([accu], feed_dict={
+            acc_, = sess.run(acc, feed_dict={
                 source_original_emb: source_wordvec.embedding,
-                test_labels: senti_dataset.test[1],
+                test_labels: senti_dataset.test[1]})
 
-                train_labels: senti_dataset.train[1],
-                target_original_emb: target_wordvec.embedding,
-                dictionary: dict_obj, })
-            
-            print(epoch, loss_, accu_)
-
-            # print('epoch: %d    loss: %d    accuracy: %d' %
-            #       (epoch, loss_, accu_))
+            print('epoch: %d    loss: %d    accuracy: %d' %
+                  (epoch, loss_, acc_))
 
             if (epoch + 1) % 10 == 0:
                 saver.save(sess, './checkpoints/blse', global_step=global_step)
