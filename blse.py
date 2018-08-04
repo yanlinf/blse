@@ -153,9 +153,11 @@ def main():
                 train_labels: senti_dataset.train[1],
                 target_original_emb: target_wordvec.embedding,
                 dictionary: dict_obj, })
+            
+            print(epoch, loss_, accu_)
 
-            print('epoch: %d    loss: %d    accuracy: %d' %
-                  (epoch, loss_, accu_))
+            # print('epoch: %d    loss: %d    accuracy: %d' %
+            #       (epoch, loss_, accu_))
 
             if (epoch + 1) % 10 == 0:
                 saver.save(sess, './checkpoints/blse', global_step=global_step)
