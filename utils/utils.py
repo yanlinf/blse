@@ -108,7 +108,7 @@ class WordVecs(object):
         Returns: list[[int, str]]
             [[dist1, word1], [dist2, word2], ..., [dist_k, word_k]]
         """
-        idx = self._w2idx[word]
+        idx = self.word2index[word]
         vec = self._matrix[idx]
         most_similar = [(1, 0)] * num_similar
         for i, cur_vec in enumerate(self._matrix):
@@ -221,10 +221,9 @@ class SentimentDataset(object):
         self.dev = load(os.path.join(directory, 'dev'))
         self.test = load(os.path.join(directory, 'test'))
 
-    def to_index(self, source_wordvec, target_wordvec):
+    def to_index(self, wordvec):
         """
-        source_wordvec: WordVecs object
-        target_wordvec: WordVecs object
+        wordvec: WordVecs object
 
         Returns: None
         """
@@ -234,7 +233,7 @@ class SentimentDataset(object):
                 sent_new = []
                 for word in sent:
                     try:
-                        sent_new.append(source_wordvec.word2index(word))
+                        sent_new.append(wordvec.word2index(word.lower()))
                     except KeyError:
                         continue
                 X_new.append(sent_new)
