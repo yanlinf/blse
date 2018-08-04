@@ -146,7 +146,7 @@ def main():
             if args.debug:
                 print('computing test accuracy')
 
-            accu_ = sess.run(accu, feed_dict={
+            accu_, = sess.run([accu], feed_dict={
                 source_original_emb: source_wordvec.embedding,
                 test_labels: senti_dataset.test[1],
 
