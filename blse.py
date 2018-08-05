@@ -22,34 +22,40 @@ def get_projection_loss(source_emb, target_emb, dictionary):
 
 
 def softmax_layer(input):
+    """
+    compute $$ logits = input * P $$,
+    where the shape of logits is (None, n_classes)
+    doesn't perform softmax
+    """
     with tf.variable_scope('softmax', reuse=tf.AUTO_REUSE):
         P = tf.get_variable('P', (args.vec_dim, 4), dtype=tf.float32,
                             initializer=tf.random_uniform_initializer(-1., 1.))
     return tf.matmul(input, P)
 
 
-def get_classification_loss(emb, X_id, y):
+def get_classification_loss_pred(emb, X, y):
     """
     Given the language embedding and the classification dataset,
     compute the classification loss.
     """
-    X = []
-    for sent in X_id:
-        word_list = [tf.nn.embedding_lookup(emb, word_id) for word_id in sent]
-        sent_vec = tf.reduce_mean(tf.stack(word_list, axis=0), axis=0)
-        X.append(sent_vec)
-    X = tf.stack(X, axis=0)
+    X = tf.nn.embedding_lookup(emb, X)  # shape: (None, 256, 300)
+    X = tf.reduce_mean(X, axis=1)  # shape: (None, 300)
+    # for sent in X_id:
+    #     word_list = [tf.nn.embedding_lookup(emb, word_id) for word_id in sent]
+    #     sent_vec = tf.reduce_mean(tf.stack(word_list, axis=0), axis=0)
+    #     X.append(sent_vec)
+    # X = tf.stack(X, axis=0)
 
     hypothesis = softmax_layer(X)
-    pred = tf.argmax(hypothesis, axis=1)
+    pred = tf.argmax(hypothesis, axis=1, output_type=tf.int32)
     classification_loss = tf.losses.softmax_cross_entropy(
         tf.one_hot(y, 4), hypothesis)
-    return classification_loss
+    return classification_loss, pred
 
 
-def get_full_loss(source_emb, target_emb, dictionary, X_id, y):
+def get_full_loss_pred(source_emb, target_emb, dictionary, X_id, y):
     """
-    Compute the loss.
+    Compute the loss and classification prediction.
     $$ full_loss = alpha * classification_loss + (1 - alpha) * projection_loss $$
 
     source_emb: tensor of shape (vocabsize, vec_dim)
@@ -65,22 +71,21 @@ def get_full_loss(source_emb, target_emb, dictionary, X_id, y):
         labels of the dataset
     """
     proj_loss = get_projection_loss(source_emb, target_emb, dictionary)
-    classification_loss = get_classification_loss(
+    classification_loss, pred = get_classification_loss_pred(
         source_emb, X_id, y)
-    full_loss = tf.add(tf.multiply(args.alpha, classification_loss),
-                       tf.multiply((1 - args.alpha), proj_loss))
-    return full_loss
+    full_loss = args.alpha * classification_loss + (1 - args.alpha) * proj_loss
+    return full_loss, classification_loss, proj_loss, pred
 
 
-def get_prediction(emb, X_id):
-    X = []
-    for sent in X_id:
-        word_list = [tf.nn.embedding_lookup(emb, word_id) for word_id in sent]
-        sent_vec = tf.reduce_mean(tf.stack(word_list, axis=0), axis=0)
-        X.append(sent_vec)
-    X = tf.stack(X, axis=0)
-    pred = tf.argmax(softmax_layer(X), axis=1)
-    return pred
+# def get_prediction(emb, X_id):
+#     X = []
+#     for sent in X_id:
+#         word_list = [tf.nn.embedding_lookup(emb, word_id) for word_id in sent]
+#         sent_vec = tf.reduce_mean(tf.stack(word_list, axis=0), axis=0)
+#         X.append(sent_vec)
+#     X = tf.stack(X, axis=0)
+#     pred = tf.argmax(softmax_layer(X), axis=1)
+#     return pred
 
 
 def get_projected_embeddings(source_original_emb, target_original_emb):
@@ -97,60 +102,75 @@ def get_projected_embeddings(source_original_emb, target_original_emb):
     return source_emb, target_emb
 
 
-def main():
+def load_data():
     source_wordvec = utils.WordVecs(args.source_embedding)
     target_wordvec = utils.WordVecs(args.target_embedding)
     args.vec_dim = source_wordvec.vec_dim
+
+    pad_id = source_wordvec.add_word('<PAD>', np.zeros(300))
+
     dict_obj = utils.BilingualDict(args.dictionary).filter(
         lambda x: x[0] != '-').get_indexed_dictionary(source_wordvec, target_wordvec)
 
     senti_dataset = utils.SentimentDataset(
         args.sentiment_dataset).to_index(source_wordvec)
+    train_x = tf.keras.preprocessing.sequence.pad_sequences(
+        senti_dataset.train[0], maxlen=256, value=pad_id)
+    test_x = tf.keras.preprocessing.sequence.pad_sequences(
+        senti_dataset.test[0], maxlen=256, value=pad_id)
+    train_y = senti_dataset.train[1]
+    test_y = senti_dataset.test[1]
 
+    return source_wordvec.embedding, target_wordvec.embedding, dict_obj, train_x, train_y, test_x, test_y
+
+
+def get_input_layer():
     source_original_emb = tf.placeholder(
         tf.float32, shape=(None, args.vec_dim))
     target_original_emb = tf.placeholder(
         tf.float32, shape=(None, args.vec_dim))
-    train_labels = tf.placeholder(tf.int32, shape=(None,))
-    test_labels = tf.placeholder(tf.int32, shape=(None,))
+    corpus = tf.placeholder(tf.int32, shape=(None, 256))
+    labels = tf.placeholder(tf.int32, shape=(None,))
     dictionary = tf.placeholder(tf.int32, shape=(None, 2))
+    return source_original_emb, target_original_emb, corpus, labels, dictionary
+
+
+def main():
+    source_emb_obj, target_emb_obj, dict_obj, train_x, train_y, test_x, test_y = load_data()  # numpy arrays
+
+    source_original_emb, target_original_emb, corpus, labels, dictionary = get_input_layer()  # tensors
 
     source_emb, target_emb = get_projected_embeddings(
         source_original_emb, target_original_emb)
+
     global_step = tf.Variable(0,
                               dtype=tf.int32,
                               trainable=False,
                               name='global_step')
-    loss = get_full_loss(source_emb, target_emb,
-                         dictionary, senti_dataset.train[0], train_labels)
-    pred = get_prediction(source_emb, senti_dataset.test[0])
+    loss, class_loss, proj_loss, pred = get_full_loss_pred(source_emb, target_emb,
+                                                           dictionary, corpus, labels)
 
-    print(pred.shape)
-
-    acc = tf.reduce_mean(tf.to_float(pred == test_labels))
+    acc = tf.reduce_mean(tf.to_float(tf.equal(pred, labels)))
     optimizer = tf.train.AdamOptimizer(
-        args.alpha).minimize(loss, global_step=global_step)
-    
-    print(senti_dataset.test[1])
+        args.learning_rate).minimize(loss, global_step=global_step)
 
     saver = tf.train.Saver()
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        sess.run(tf.local_variables_initializer())
         for epoch in range(args.epochs):
-            loss_, _ = sess.run([loss, optimizer], feed_dict={
-                source_original_emb: source_wordvec.embedding,
-                target_original_emb: target_wordvec.embedding,
-                train_labels: senti_dataset.train[1],
-                test_labels: senti_dataset.test[1],
+            loss_, class_loss_, proj_loss_, _, train_acc_ = sess.run([loss, class_loss, proj_loss, optimizer, acc], feed_dict={
+                source_original_emb: source_emb_obj,
+                target_original_emb: target_emb_obj,
+                corpus: train_x,
+                labels: train_y,
                 dictionary: dict_obj, })
 
-            acc_, = sess.run(acc, feed_dict={
-                source_original_emb: source_wordvec.embedding,
-                test_labels: senti_dataset.test[1]})
-
-            print('epoch: %d    loss: %d    accuracy: %d' %
-                  (epoch, loss_, acc_))
+            acc_ = sess.run(acc, feed_dict={
+                source_original_emb: source_emb_obj,
+                corpus: test_x,
+                labels: test_y})
+            print('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss_: %.4f  train_acc: %2.f  test_acc: %.2f' %
+                  (epoch, loss_, class_loss_, proj_loss_, train_acc_, acc_))
 
             if (epoch + 1) % 10 == 0:
                 saver.save(sess, './checkpoints/blse', global_step=global_step)
@@ -165,9 +185,13 @@ if __name__ == '__main__':
                         help='target language: en/es/ca/eu (default: es)',
                         default='es')
     parser.add_argument('-a', '--alpha',
-                        help="trade-off between projection and classification objectives (default: .001)",
+                        help="trade-off between projection and classification objectives (default: 0.001)",
                         default=0.001,
                         type=float)
+    parser.add_argument('-lr', '--learning_rate',
+                        help='learning rate (default: 0.03)',
+                        type=float,
+                        default=0.03)
     parser.add_argument('-e', '--epochs',
                         help='training epochs (default: 200)',
                         default=200,
