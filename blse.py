@@ -169,7 +169,7 @@ def main():
                 source_original_emb: source_emb_obj,
                 corpus: test_x,
                 labels: test_y})
-            print('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss_: %.4f  train_acc: %2.f  test_acc: %.2f' %
+            print('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss_: %.4f  train_acc: %.2f  test_acc: %.2f' %
                   (epoch, loss_, class_loss_, proj_loss_, train_acc_, acc_))
 
             if (epoch + 1) % 10 == 0:
