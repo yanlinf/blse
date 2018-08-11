@@ -1,4 +1,6 @@
 # Poject specific
+checkpoints/
+lexicons/
 emb/
 corpus/
 plain/
