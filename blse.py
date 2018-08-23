@@ -84,7 +84,7 @@ class BLSE(object):
         self.dictionary = tf.placeholder(tf.int32, shape=(None, 2))
 
         source_emb, target_emb = get_projected_embeddings(
-            source_original_emb, target_original_emb)
+            self.source_original_emb, self.target_original_emb)
 
         # compute projection loss
         self.proj_loss = get_projection_loss(
@@ -95,7 +95,7 @@ class BLSE(object):
             source_emb, self.corpus), axis=1)  # shape: (None, 300)
         hypothesis = softmax_layer(sents)
         self.classification_loss = tf.losses.softmax_cross_entropy(
-            tf.one_hot(y, 4), hypothesis)
+            tf.one_hot(self.labels, 4), hypothesis)
 
         # compute full loss
         self.loss = args.alpha * self.classification_loss + \
@@ -104,7 +104,7 @@ class BLSE(object):
         # compute accuracy counts
         self.pred = tf.argmax(hypothesis, axis=1, output_type=tf.int32)
         self.acc = tf.reduce_mean(tf.to_float(
-            tf.equal(pred, labels)))  # tensor
+            tf.equal(self.pred, self.labels)))  # tensor
 
         self.global_step = tf.Variable(0,
                                        dtype=tf.int32,
@@ -127,7 +127,7 @@ class BLSE(object):
         nsample = len(train_x)
         nbatch = nsample // args.batch_size
         for epoch in range(args.epochs):
-            closs, ploss, loss, acc = 0., 0.
+            closs, ploss, loss, acc = 0., 0., 0., 0.
             for index, offset in enumerate(range(0, nsample, args.batch_size)):
                 xs = train_x[offset:offset + args.batch_size]
                 ys = train_y[offset:offset + args.batch_size]
@@ -138,7 +138,7 @@ class BLSE(object):
                     self.corpus: xs,
                     self.labels: ys,
                 }
-                closs_, ploss_, loss_, acc_, _, self.sess.run(
+                closs_, ploss_, loss_, acc_, _ = self.sess.run(
                     [self.classification_loss, self.proj_loss, self.loss, self.acc, self.optimizer], feed_dict=feed_dict)
 
                 closs += closs_
@@ -193,11 +193,11 @@ def load_data():
     return source_wordvec.embedding, target_wordvec.embedding, dict_obj, train_x, train_y, test_x, test_y
 
 
-def main():
+def main(args):
     source_emb_obj, target_emb_obj, dict_obj, train_x, train_y, test_x, test_y = load_data()  # numpy array
 
     with tf.Session() as sess:
-        model = BLSE(sess, source_emb_obj, target_emb_obj, dict_obj)
+        model = BLSE(sess, source_emb_obj, target_emb_obj, dict_obj, args.save_path)
         model.fit(train_x, train_y)
         model.evaluate(test_x, test_y)
 
@@ -249,4 +249,4 @@ if __name__ == '__main__':
                         help='the dictionary to store the trained model',
                         default='./checkpoints/')
     args = parser.parse_args()
-    main()
+    main(args)
