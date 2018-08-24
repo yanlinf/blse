@@ -241,9 +241,9 @@ class SentimentDataset(object):
         self.dev = load(os.path.join(directory, 'dev'))
         self.test = load(os.path.join(directory, 'test'))
 
-    def to_index(self, wordvec):
+    def to_index(self, wordvecs):
         """
-        wordvec: WordVecs object
+        wordvecs: WordVecs object
 
         Returns: None
         """
@@ -253,7 +253,7 @@ class SentimentDataset(object):
                 sent_new = []
                 for word in sent:
                     try:
-                        sent_new.append(wordvec.word2index(word.lower()))
+                        sent_new.append(wordvecs.word2index(word.lower()))
                     except KeyError:
                         continue
                 X_new.append(sent_new)
@@ -262,4 +262,43 @@ class SentimentDataset(object):
         self.train = sents2index(*self.train)
         self.dev = sents2index(*self.dev)
         self.test = sents2index(*self.test)
+        return self
+
+
+class SentiWordSet(object):
+    """
+    Helper class for loading sentimental words for further exmanation.
+
+    path: str
+        file location of the word set
+    encoding: str
+        the encoding method of the file
+    """
+
+    def __init__(self, path, encoding='utf-8'):
+        self.labels, self.wordsets = self._load_words(path, encoding)
+
+    def _load_words(self, path, encoding):
+        labels, wordsets = [], []
+        with open(path, 'r', encoding=encoding) as fin:
+            for line in fin:
+                category, words = line.split(' :: ')
+                labels.append(category)
+                wordsets.append(words.split())
+        return labels, wordsets
+
+    def to_index(self, wordvecs):
+        """
+        Given a WordVecs object, convert words to indices.
+
+        Returns: self
+        """
+        for i, words in enumerate(self.wordsets):
+            indices = []
+            for w in words:
+                try:
+                    indices.append(wordvecs.word2index(w))
+                except KeyError:
+                    pass
+            self.wordsets[i] = indices
         return self
