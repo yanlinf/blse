@@ -6,6 +6,7 @@ author: fyl
 import tensorflow as tf
 import numpy as np
 import argparse
+from sklearn.metrics import f1_score
 from utils import utils
 
 
@@ -66,9 +67,9 @@ class BLSE(object):
             """
             with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
                 W_source = tf.get_variable(
-                    'W_source', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+                    'W_source', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.constant(np.identity(args.vec_dim)))
                 W_target = tf.get_variable(
-                    'W_target', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+                    'W_target', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.constant(np.identity(args.vec_dim)))
             source_emb = tf.matmul(source_original_emb,
                                    W_source, name='map_source')
             target_emb = tf.matmul(target_original_emb,
@@ -82,6 +83,7 @@ class BLSE(object):
         self.corpus = tf.placeholder(tf.int32, shape=(None, 256))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
         self.dictionary = tf.placeholder(tf.int32, shape=(None, 2))
+        self.test_corpus = tf.placeholder(tf.int32, shape=(None, 256))
 
         source_emb, target_emb = get_projected_embeddings(
             self.source_original_emb, self.target_original_emb)
@@ -105,6 +107,13 @@ class BLSE(object):
         self.pred = tf.argmax(hypothesis, axis=1, output_type=tf.int32)
         self.acc = tf.reduce_mean(tf.to_float(
             tf.equal(self.pred, self.labels)))  # tensor
+
+        # predict test labels:
+        sents_test = tf.reduce_mean(tf.nn.embedding_lookup(
+            target_emb, self.corpus_test), axis=1)
+        hypothesis_test = softmax_layer(sents_test)
+        self.pred_test = tf.argmax(
+            hypothesis_test, axis=1, output_type=tf.int32)
 
         self.global_step = tf.Variable(0,
                                        dtype=tf.int32,
@@ -153,6 +162,13 @@ class BLSE(object):
             if (epoch + 1) % 10 == 0:
                 self.save(self.savepath)
 
+    def predict(self, test_x):
+        feed_dict = {
+            self.target_original_emb: self.target_emb_obj,
+            self.corpus_test: test_x,
+        }
+        return self.sess.run(self.pred_test, feed_dict=feed_dict)
+
     def evaluate(self, test_x, test_y):
         """
         Compute the accuracy given the test examples.
@@ -181,14 +197,18 @@ def load_data():
     dict_obj = utils.BilingualDict(args.dictionary).filter(
         lambda x: x[0] != '-').get_indexed_dictionary(source_wordvec, target_wordvec)
 
-    senti_dataset = utils.SentimentDataset(
-        args.sentiment_dataset).to_index(source_wordvec)
+    source_dataset = utils.SentimentDataset(
+        args.source_dataset).to_index(source_wordvec)
+    target_dataset = utils.SentimentDataset(
+        args.target_dataset).to_index(target_wordvec)
+
     train_x = tf.keras.preprocessing.sequence.pad_sequences(
-        senti_dataset.train[0], maxlen=256, value=pad_id)
+        source_dataset.train[0], maxlen=256, value=pad_id)
+    train_y = source_dataset.train[1]
+
     test_x = tf.keras.preprocessing.sequence.pad_sequences(
-        senti_dataset.test[0], maxlen=256, value=pad_id)
-    train_y = senti_dataset.train[1]
-    test_y = senti_dataset.test[1]
+        target_dataset.train[0], maxlen=256, value=pad_id)
+    test_y = target_dataset.train[1]
 
     return source_wordvec.embedding, target_wordvec.embedding, dict_obj, train_x, train_y, test_x, test_y
 
@@ -197,9 +217,12 @@ def main(args):
     source_emb_obj, target_emb_obj, dict_obj, train_x, train_y, test_x, test_y = load_data()  # numpy array
 
     with tf.Session() as sess:
-        model = BLSE(sess, source_emb_obj, target_emb_obj, dict_obj, args.save_path)
+        model = BLSE(sess, source_emb_obj, target_emb_obj,
+                     dict_obj, args.save_path)
         model.fit(train_x, train_y)
-        model.evaluate(test_x, test_y)
+        pred = model.predict(test_x)
+        fscore = f1_score(test_y, pred, average='macro')
+        print('f1 score = %.4f' % fscore)
 
 
 if __name__ == '__main__':
@@ -235,9 +258,12 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--dictionary',
                         help='bilingual dictionary of source and target language (default: ./lexicons/bingliu/en-es.txt',
                         default='./lexicons/bingliu/en-eu.txt')
-    parser.add_argument('-sd', '--sentiment_dataset',
+    parser.add_argument('-sd', '--source_dataset',
                         help='sentiment dataset of the source language',
                         default='./datasets/en/opener_sents/')
+    parser.add_argument('-td', '--target_dataset',
+                        help='sentiment dataset of the target language',
+                        default='./datasets/es/opener_sents/')
     parser.add_argument('-vd', '--vector_dim',
                         help='dimension of each word vector (default: 300)',
                         default=300,
