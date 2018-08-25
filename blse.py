@@ -7,7 +7,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 from pprint import pprint
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score
 import logging
 from utils import utils
 
@@ -132,6 +132,9 @@ class BLSE(object):
         """
         self.saver.save(self.sess, path, global_step=self.global_step)
 
+    def load(self, path):
+        self.saver.restore(self.sess, path)
+
     def fit(self, train_x, train_y):
         """
         train the model.
@@ -235,6 +238,12 @@ def load_data():
     return source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y
 
 
+def evaluate(pred, true_y):
+    acc = accuracy_score(test_y, pred)
+    fscore = f1_score(test_y, pred, average='macro')
+    logging.info('f1_score: %.4f    accuracy: %.2f' % (fscore, acc))
+
+
 def main(args):
     logging.info('fitting BLSE model with parameters: %s' % str(args))
     source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y = load_data()  # numpy array
@@ -242,14 +251,15 @@ def main(args):
         model = BLSE(sess, source_wordvec.embedding, target_wordvec.embedding,
                      dict_obj, args.save_path)
 
-        fscore = f1_score(test_y, model.predict(test_x), average='macro')
-        logging.info('f1 score = %.4f' % fscore)
+        if args.model != '':
+            model.load(args.model)
+
+        evaluate(model.predict(test_x), test_y)
 
         model.fit(train_x, train_y)
         model.save(args.save_path)
 
-        fscore = f1_score(test_y, model.predict(test_x), average='macro')
-        logging.info('f1 score = %.4f' % fscore)
+        evaluate(model.predict(test_x), test_y)
 
         pprint([' '.join([str(w) for w in line if w != '<PAD>'])
                 for line in source_wordvec.index2word(train_x[:30])])
@@ -311,6 +321,10 @@ if __name__ == '__main__':
     parser.add_argument('--save_path',
                         help='the dictionary to store the trained model',
                         default='./checkpoints/')
+    parser.add_argument('--model',
+                        help='restore from trained model',
+                        type=str,
+                        default='')
     args = parser.parse_args()
 
     logging.basicConfig(level=args.loglevel,
