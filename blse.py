@@ -6,6 +6,7 @@ author: fyl
 import tensorflow as tf
 import numpy as np
 import argparse
+from pprint import pprint
 from sklearn.metrics import f1_score
 import logging
 from utils import utils
@@ -59,7 +60,8 @@ class BLSE(object):
             with tf.variable_scope('softmax', reuse=tf.AUTO_REUSE):
                 P = tf.get_variable('P', (args.vec_dim, 4), dtype=tf.float32,
                                     initializer=tf.random_uniform_initializer(-1., 1.))
-                b = tf.get_variable('b', (4,), dtype=tf.float32)
+                b = tf.get_variable(
+                    'b', (4,), dtype=tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
             return tf.matmul(input, P) + b
 
         def get_projected_embeddings(source_original_emb, target_original_emb):
@@ -177,6 +179,13 @@ class BLSE(object):
         }
         return self.sess.run(self.pred_test, feed_dict=feed_dict)
 
+    def predict_source(self, test_x):
+        feed_dict = {
+            self.source_original_emb: self.source_emb_obj,
+            self.corpus: test_x,
+        }
+        return self.sess.run(self.pred, feed_dict=feed_dict)
+
     def evaluate(self, test_x, test_y):
         """
         Compute the accuracy given the test examples (in source language).
@@ -223,20 +232,31 @@ def load_data():
     perm = np.random.permutation(test_x.shape[0])
     test_x, test_y = test_x[perm], test_y[perm]
 
-    return source_wordvec.embedding, target_wordvec.embedding, dict_obj, train_x, train_y, test_x, test_y
+    return source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y
 
 
 def main(args):
     logging.info('fitting BLSE model with parameters: %s' % str(args))
-    source_emb_obj, target_emb_obj, dict_obj, train_x, train_y, test_x, test_y = load_data()  # numpy array
+    source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y = load_data()  # numpy array
     with tf.Session() as sess:
-        model = BLSE(sess, source_emb_obj, target_emb_obj,
+        model = BLSE(sess, source_wordvec.embedding, target_wordvec.embedding,
                      dict_obj, args.save_path)
+
+        fscore = f1_score(test_y, model.predict(test_x), average='macro')
+        logging.info('f1 score = %.4f' % fscore)
+
         model.fit(train_x, train_y)
         model.save(args.save_path)
-        pred = model.predict(test_x)
-        fscore = f1_score(test_y, pred, average='macro')
+
+        fscore = f1_score(test_y, model.predict(test_x), average='macro')
         logging.info('f1 score = %.4f' % fscore)
+
+        pprint([' '.join([str(w) for w in line if w != '<PAD>'])
+                for line in source_wordvec.index2word(train_x[:30])])
+        print()
+        print(model.predict_source(train_x[:30]))
+        print()
+        print(train_y[:30])
 
 
 if __name__ == '__main__':
