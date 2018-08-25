@@ -239,8 +239,8 @@ def load_data():
 
 
 def evaluate(pred, true_y):
-    acc = accuracy_score(test_y, pred)
-    fscore = f1_score(test_y, pred, average='macro')
+    acc = accuracy_score(true_y, pred)
+    fscore = f1_score(true_y, pred, average='macro')
     logging.info('f1_score: %.4f    accuracy: %.2f' % (fscore, acc))
 
 
