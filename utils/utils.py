@@ -80,7 +80,10 @@ class WordVecs(object):
                     w2idx[word] = len(w2idx)
                     emb_matrix[w2idx[word]] = vec
 
-        idx2w = {i: w for w, i in w2idx.items()}
+        idx2w = [None] * len(w2idx)
+        for w, i in w2idx.items():
+            idx2w[i] = w
+        idx2w = np.array(idx2w)
         return vocab_size, vec_dim, emb_matrix, w2idx, idx2w
 
     def add_word(self, word, vec):
@@ -96,11 +99,17 @@ class WordVecs(object):
         """
         if word in self._w2idx:
             raise ValueError('Word already in vocabulary')
+
         new_id = len(self._w2idx)
+
+        if self._matrix.shape[0] == new_id:
+            self._matrix = np.concatenate(
+                (self._matrix, vec.reshape(1, self.vec_dim)), axis=0)
+        else:
+            self._matrix[new_id] = vec
+
         self._w2idx[word] = new_id
-        self._idx2w[new_id] = word
-        self._matrix = np.concatenate(
-            (self._matrix, vec.reshape(1, self.vec_dim)), axis=0)
+        self._idx2w = np.append(self._idx2w, word)
         return new_id
 
     def word2index(self, word):
@@ -111,6 +120,17 @@ class WordVecs(object):
             return self._w2idx[word]
         except KeyError:
             raise KeyError('Word not in vocabulary')
+
+    def index2word(self, index):
+        """
+        index: int / List[int] / np.ndarray of type int
+
+        Returns: str / np.ndarray
+        """
+        try:
+            return self._idx2w[index]
+        except IndexError:
+            raise IndexError('Invalid index')
 
     @property
     def embedding(self):
