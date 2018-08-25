@@ -227,6 +227,7 @@ def load_data():
 
 
 def main(args):
+    logging.info('fitting BLSE model with parameters: %s' % str(args))
     source_emb_obj, target_emb_obj, dict_obj, train_x, train_y, test_x, test_y = load_data()  # numpy array
     with tf.Session() as sess:
         model = BLSE(sess, source_emb_obj, target_emb_obj,
