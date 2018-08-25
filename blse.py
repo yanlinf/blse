@@ -7,6 +7,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 from sklearn.metrics import f1_score
+import logging
 from utils import utils
 
 
@@ -135,6 +136,13 @@ class BLSE(object):
         """
         nsample = len(train_x)
         nbatch = nsample // args.batch_size
+        logging.debug('accuracy before training: %.2f' % self.sess.run(self.acc, feed_dict={
+            self.source_original_emb: self.source_emb_obj,
+            self.target_original_emb: self.target_emb_obj,
+            self.dictionary: self.dict_obj,
+            self.corpus: train_x[:100],
+            self.labels: train_y[:100],
+        }))
         for epoch in range(args.epochs):
             closs, ploss, loss, acc = 0., 0., 0., 0.
             for index, offset in enumerate(range(0, nsample, args.batch_size)):
@@ -157,8 +165,8 @@ class BLSE(object):
 
             closs, ploss, loss, acc = closs / nbatch, ploss / \
                 nbatch, loss / nbatch, acc / nbatch
-            print('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  train_acc: %.2f' %
-                  (epoch, loss, closs, ploss, acc))
+            logging.info('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  train_acc: %.2f' %
+                         (epoch, loss, closs, ploss, acc))
             if (epoch + 1) % 10 == 0:
                 self.save(self.savepath)
 
@@ -171,7 +179,7 @@ class BLSE(object):
 
     def evaluate(self, test_x, test_y):
         """
-        Compute the accuracy given the test examples.
+        Compute the accuracy given the test examples (in source language).
         """
         feed_dict = {
             self.source_original_emb: self.source_emb_obj,
@@ -181,7 +189,7 @@ class BLSE(object):
             self.labels: test_y,
         }
         acc = self.sess.run(self.acc, feed_dict=feed_dict)
-        print('test accuracy: %.4f' % acc)
+        logging.info('test accuracy (source language): %.4f' % acc)
 
 
 def load_data():
@@ -192,7 +200,8 @@ def load_data():
     target_wordvec = utils.WordVecs(args.target_embedding)
     args.vec_dim = source_wordvec.vec_dim
 
-    pad_id = source_wordvec.add_word('<PAD>', np.zeros(300))
+    source_pad_id = source_wordvec.add_word('<PAD>', np.zeros(300))
+    target_pad_id = target_wordvec.add_word('<PAD>', np.zeros(300))
 
     dict_obj = utils.BilingualDict(args.dictionary).filter(
         lambda x: x[0] != '-').get_indexed_dictionary(source_wordvec, target_wordvec)
@@ -203,28 +212,30 @@ def load_data():
         args.target_dataset).to_index(target_wordvec)
 
     train_x = tf.keras.preprocessing.sequence.pad_sequences(
-        source_dataset.train[0], maxlen=256, value=pad_id)
+        source_dataset.train[0], maxlen=256, value=source_pad_id)
     train_y = source_dataset.train[1]
+    perm = np.random.permutation(train_x.shape[0])
+    train_x, train_y = train_x[perm], train_y[perm]
 
     test_x = tf.keras.preprocessing.sequence.pad_sequences(
-        target_dataset.train[0], maxlen=256, value=pad_id)
+        target_dataset.train[0], maxlen=256, value=target_pad_id)
     test_y = target_dataset.train[1]
+    perm = np.random.permutation(test_x.shape[0])
+    test_x, test_y = test_x[perm], test_y[perm]
 
     return source_wordvec.embedding, target_wordvec.embedding, dict_obj, train_x, train_y, test_x, test_y
 
 
 def main(args):
     source_emb_obj, target_emb_obj, dict_obj, train_x, train_y, test_x, test_y = load_data()  # numpy array
-
     with tf.Session() as sess:
         model = BLSE(sess, source_emb_obj, target_emb_obj,
                      dict_obj, args.save_path)
         model.fit(train_x, train_y)
         model.save(args.save_path)
-        
         pred = model.predict(test_x)
         fscore = f1_score(test_y, pred, average='macro')
-        print('f1 score = %.4f' % fscore)
+        logging.info('f1 score = %.4f' % fscore)
 
 
 if __name__ == '__main__':
@@ -272,9 +283,16 @@ if __name__ == '__main__':
                         type=int)
     parser.add_argument('--debug',
                         help='print debug info',
-                        action='store_true')
+                        action='store_const',
+                        dest='loglevel',
+                        default=logging.INFO,
+                        const=logging.DEBUG)
     parser.add_argument('--save_path',
                         help='the dictionary to store the trained model',
                         default='./checkpoints/')
     args = parser.parse_args()
+
+    logging.basicConfig(level=args.loglevel,
+                        format='%(asctime)s: %(levelname)s: %(message)s')
+
     main(args)
