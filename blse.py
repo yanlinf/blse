@@ -67,9 +67,9 @@ class BLSE(object):
             """
             with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
                 W_source = tf.get_variable(
-                    'W_source', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.constant(np.identity(args.vec_dim)))
+                    'W_source', dtype=tf.float32, initializer=tf.constant(np.identity(args.vec_dim, dtype=np.float32)))
                 W_target = tf.get_variable(
-                    'W_target', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.constant(np.identity(args.vec_dim)))
+                    'W_target', dtype=tf.float32, initializer=tf.constant(np.identity(args.vec_dim, dtype=np.float32)))
             source_emb = tf.matmul(source_original_emb,
                                    W_source, name='map_source')
             target_emb = tf.matmul(target_original_emb,
@@ -83,7 +83,7 @@ class BLSE(object):
         self.corpus = tf.placeholder(tf.int32, shape=(None, 256))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
         self.dictionary = tf.placeholder(tf.int32, shape=(None, 2))
-        self.test_corpus = tf.placeholder(tf.int32, shape=(None, 256))
+        self.corpus_test = tf.placeholder(tf.int32, shape=(None, 256))
 
         source_emb, target_emb = get_projected_embeddings(
             self.source_original_emb, self.target_original_emb)
@@ -100,8 +100,8 @@ class BLSE(object):
             tf.one_hot(self.labels, 4), hypothesis)
 
         # compute full loss
-        self.loss = args.alpha * self.classification_loss + \
-            (1 - args.alpha) * self.proj_loss
+        self.loss = (1 - args.alpha) * self.classification_loss + \
+            args.alpha * self.proj_loss
 
         # compute accuracy counts
         self.pred = tf.argmax(hypothesis, axis=1, output_type=tf.int32)
