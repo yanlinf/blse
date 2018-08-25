@@ -157,7 +157,7 @@ class BLSE(object):
 
             closs, ploss, loss, acc = closs / nbatch, ploss / \
                 nbatch, loss / nbatch, acc / nbatch
-            print('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  train_acc: %.2f=' %
+            print('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  train_acc: %.2f' %
                   (epoch, loss, closs, ploss, acc))
             if (epoch + 1) % 10 == 0:
                 self.save(self.savepath)
@@ -220,6 +220,8 @@ def main(args):
         model = BLSE(sess, source_emb_obj, target_emb_obj,
                      dict_obj, args.save_path)
         model.fit(train_x, train_y)
+        model.save(args.save_path)
+        
         pred = model.predict(test_x)
         fscore = f1_score(test_y, pred, average='macro')
         print('f1 score = %.4f' % fscore)
