@@ -23,9 +23,11 @@ class BLSE(object):
     src_emb: numpy.ndarray of shape (source_emb_size, vec_dim)
     tgt_emb: numpy.ndarray of shape (source_emb_size, vec_dim)
     dictionary: numpy.ndarray of shape (dictionary_size, 2)
+    binary: bool, optional (deafult: False)
     """
 
-    def __init__(self, sess, src_emb, tgt_emb, dictionary, savepath):
+    def __init__(self, sess, src_emb, tgt_emb, dictionary, savepath, binary=False):
+        self.nclass = 2 if binary else 4
         self.source_emb_obj = src_emb
         self.target_emb_obj = tgt_emb
         self.dict_obj = dictionary
@@ -58,10 +60,10 @@ class BLSE(object):
             doesn't perform softmax
             """
             with tf.variable_scope('softmax', reuse=tf.AUTO_REUSE):
-                P = tf.get_variable('P', (args.vec_dim, 4), dtype=tf.float32,
+                P = tf.get_variable('P', (args.vec_dim, self.nclass), dtype=tf.float32,
                                     initializer=tf.random_uniform_initializer(-1., 1.))
                 b = tf.get_variable(
-                    'b', (4,), dtype=tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+                    'b', (self.nclass,), dtype=tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
             return tf.matmul(input, P) + b
 
         def get_projected_embeddings(source_original_emb, target_original_emb):
@@ -100,7 +102,7 @@ class BLSE(object):
             source_emb, self.corpus), axis=1)  # shape: (None, 300)
         hypothesis = softmax_layer(sents)
         self.classification_loss = tf.losses.softmax_cross_entropy(
-            tf.one_hot(self.labels, 4), hypothesis)
+            tf.one_hot(self.labels, self.nclass), hypothesis)
 
         # compute full loss
         self.loss = (1 - args.alpha) * self.classification_loss + \
@@ -204,7 +206,7 @@ class BLSE(object):
         logging.info('test accuracy (source language): %.4f' % acc)
 
 
-def load_data():
+def load_data(binary=False):
     """
     Return the data in numpy arrays.
     """
@@ -235,6 +237,9 @@ def load_data():
     perm = np.random.permutation(test_x.shape[0])
     test_x, test_y = test_x[perm], test_y[perm]
 
+    test_y = (test_y >= 2).astype(np.int32)
+    train_y = (train_y >= 2).astype(np.int32)
+
     return source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y
 
 
@@ -246,10 +251,10 @@ def evaluate(pred, true_y):
 
 def main(args):
     logging.info('fitting BLSE model with parameters: %s' % str(args))
-    source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y = load_data()  # numpy array
+    source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y = load_data(binary=args.binary)  # numpy array
     with tf.Session() as sess:
         model = BLSE(sess, source_wordvec.embedding, target_wordvec.embedding,
-                     dict_obj, args.save_path)
+                     dict_obj, args.save_path, binary=args.binary)
 
         if args.model != '':
             model.load(args.model)
@@ -271,6 +276,9 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('-bi', '--binary',
+                        help='use 2-class set up',
+                        action='store_true')
     parser.add_argument('-sl', '--source_lang',
                         help='source language: en/es/ca/eu (default: en)',
                         default='eu')
