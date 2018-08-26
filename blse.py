@@ -243,9 +243,12 @@ def load_data(binary=False):
     return source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y
 
 
-def evaluate(pred, true_y):
+def evaluate(pred, true_y, binary=False):
     acc = accuracy_score(true_y, pred)
-    fscore = f1_score(true_y, pred, average='macro')
+    if binary:
+        fscore = f1_score(true_y, pred)
+    else:
+        fscore = f1_score(true_y, pred, average='macro')
     logging.info('f1_score: %.4f    accuracy: %.2f' % (fscore, acc))
 
 
@@ -259,12 +262,12 @@ def main(args):
         if args.model != '':
             model.load(args.model)
 
-        evaluate(model.predict(test_x), test_y)
+        evaluate(model.predict(test_x), test_y, args.binary)
 
         model.fit(train_x, train_y)
         model.save(args.save_path)
 
-        evaluate(model.predict(test_x), test_y)
+        evaluate(model.predict(test_x), test_y, args.binary)
 
         pprint([' '.join([str(w) for w in line if w != '<PAD>'])
                 for line in source_wordvec.index2word(train_x[:30])])
