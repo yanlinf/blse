@@ -63,7 +63,7 @@ class BLSE(object):
                 P = tf.get_variable('P', (args.vec_dim, self.nclass), dtype=tf.float32,
                                     initializer=tf.random_uniform_initializer(-1., 1.))
                 b = tf.get_variable(
-                    'b', (self.nclass,), dtype=tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+                    'b', (self.nclass,), dtype=tf.float32, initializer=tf.constant_initializer(0.))
             return tf.matmul(input, P) + b
 
         def get_projected_embeddings(source_original_emb, target_original_emb):
