@@ -41,16 +41,30 @@ class BLSE(object):
         """
         Build the model.
         """
+        def project_source(vecs):
+            with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
+                W_source = tf.get_variable(
+                    'W_source', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
+                self.W_source = W_source
 
-        def get_projection_loss(source_emb, target_emb, dictionary):
+            return tf.matmul(vecs, W_source + np.identity(args.vec_dim))
+
+        def project_target(vecs):
+            with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
+                W_target = tf.get_variable(
+                    'W_target', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
+
+            return tf.matmul(vecs, W_target + np.identity(args.vec_dim))
+
+        def get_projection_loss(source_original_emb, target_original_emb, dictionary):
             """
             Given the source language embedding, target language embedding and a bilingual dictionary,
             compute the projection loss.
             """
             source_ids, target_ids = dictionary[:, 0], dictionary[:, 1]
 
-            proj_loss = tf.reduce_sum(tf.squared_difference(tf.nn.embedding_lookup(
-                source_emb, source_ids), tf.nn.embedding_lookup(target_emb, target_ids)))
+            proj_loss = tf.reduce_sum(tf.squared_difference(project_source(tf.nn.embedding_lookup(
+                source_original_emb, source_ids)), project_target(tf.nn.embedding_lookup(target_original_emb, target_ids))))
             return proj_loss
 
         def softmax_layer(input):
@@ -66,22 +80,6 @@ class BLSE(object):
                 #     'b', (self.nclass,), dtype=tf.float32, initializer=tf.constant_initializer(0.))
             return tf.matmul(input, P)
 
-        def get_projected_embeddings(source_original_emb, target_original_emb):
-            """
-            Given the original embeddings, calculate the projected word embeddings.
-            """
-            with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
-                W_source = tf.get_variable(
-                    'W_source', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
-                self.W_source = W_source
-                W_target = tf.get_variable(
-                    'W_target', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
-            source_emb = tf.matmul(source_original_emb,
-                                   tf.add(W_source, np.identity(args.vec_dim)), name='map_source')
-            target_emb = tf.matmul(target_original_emb,
-                                   tf.add(W_target, np.identity(args.vec_dim)), name='map_target')
-            return source_emb, target_emb
-
         self.source_original_emb = tf.placeholder(
             tf.float32, shape=(None, args.vec_dim))
         self.target_original_emb = tf.placeholder(
@@ -91,17 +89,14 @@ class BLSE(object):
         self.dictionary = tf.placeholder(tf.int32, shape=(None, 2))
         self.corpus_test = tf.placeholder(tf.int32, shape=(None, 256))
 
-        source_emb, target_emb = get_projected_embeddings(
-            self.source_original_emb, self.target_original_emb)
-
         # compute projection loss
         self.proj_loss = get_projection_loss(
-            source_emb, target_emb, self.dictionary)
+            self.source_original_emb, self.target_original_emb, self.dictionary)
 
         # compute classification loss
-        sents = tf.reduce_mean(tf.nn.embedding_lookup(
-            source_emb, self.corpus), axis=1)  # shape: (None, 300)
-        hypothesis = softmax_layer(sents)
+        sents = tf.reduce_sum(tf.nn.embedding_lookup(
+            source_original_emb, self.corpus), axis=1)  # shape: (None, 300)
+        hypothesis = softmax_layer(project_source(sents))
         self.classification_loss = tf.losses.softmax_cross_entropy(
             tf.one_hot(self.labels, self.nclass), hypothesis)
 
@@ -115,9 +110,9 @@ class BLSE(object):
             tf.equal(self.pred, self.labels)))  # tensor
 
         # predict test labels:
-        sents_test = tf.reduce_mean(tf.nn.embedding_lookup(
-            target_emb, self.corpus_test), axis=1)
-        hypothesis_test = softmax_layer(sents_test)
+        sents_test = tf.reduce_sum(tf.nn.embedding_lookup(
+            target_original_emb, self.corpus_test), axis=1)
+        hypothesis_test = softmax_layer(project_target(sents_test))
         self.pred_test = tf.argmax(
             hypothesis_test, axis=1, output_type=tf.int32)
 
