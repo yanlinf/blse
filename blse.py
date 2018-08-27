@@ -95,7 +95,7 @@ class BLSE(object):
 
         # compute classification loss
         sents = tf.reduce_sum(tf.nn.embedding_lookup(
-            source_original_emb, self.corpus), axis=1)  # shape: (None, 300)
+            self.source_original_emb, self.corpus), axis=1)  # shape: (None, 300)
         hypothesis = softmax_layer(project_source(sents))
         self.classification_loss = tf.losses.softmax_cross_entropy(
             tf.one_hot(self.labels, self.nclass), hypothesis)
@@ -111,7 +111,7 @@ class BLSE(object):
 
         # predict test labels:
         sents_test = tf.reduce_sum(tf.nn.embedding_lookup(
-            target_original_emb, self.corpus_test), axis=1)
+            self.target_original_emb, self.corpus_test), axis=1)
         hypothesis_test = softmax_layer(project_target(sents_test))
         self.pred_test = tf.argmax(
             hypothesis_test, axis=1, output_type=tf.int32)
