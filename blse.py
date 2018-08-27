@@ -246,7 +246,7 @@ def load_data(binary=False):
 def evaluate(pred, true_y, binary=False):
     acc = accuracy_score(true_y, pred)
     if binary:
-        fscore = f1_score(true_y, pred)
+        fscore = f1_score(true_y, pred, pos_label=0)
     else:
         fscore = f1_score(true_y, pred, average='macro')
     logging.info('f1_score: %.4f    accuracy: %.2f' % (fscore, acc))
