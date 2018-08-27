@@ -245,6 +245,7 @@ def load_data(binary=False):
 
 def evaluate(pred, true_y, binary=False):
     print(pred[:50])
+    print(true_y[:50])
     acc = accuracy_score(true_y, pred)
     if binary:
         fscore = f1_score(true_y, pred, pos_label=0)
