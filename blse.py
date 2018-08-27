@@ -239,8 +239,9 @@ def load_data(binary=False):
     perm = np.random.permutation(test_x.shape[0])
     test_x, test_y = test_x[perm], test_y[perm]
 
-    test_y = (test_y >= 2).astype(np.int32)
-    train_y = (train_y >= 2).astype(np.int32)
+    if binary:
+        test_y = (test_y >= 2).astype(np.int32)
+        train_y = (train_y >= 2).astype(np.int32)
 
     return source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y
 
