@@ -175,7 +175,8 @@ class BLSE(object):
                 nbatch, loss / nbatch, acc / nbatch
             logging.info('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  train_acc: %.2f' %
                          (epoch, loss, closs, ploss, acc))
-            logging.debug('W_source:', W_source_[:8, :8] + np.identity(8))
+            logging.debug('W_source: %s' %
+                          str(W_source_[:8, :8] + np.identity(8)))
             if (epoch + 1) % 10 == 0:
                 self.save(self.savepath)
 
