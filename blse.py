@@ -61,7 +61,7 @@ class BLSE(object):
             """
             with tf.variable_scope('softmax', reuse=tf.AUTO_REUSE):
                 P = tf.get_variable('P', (args.vec_dim, self.nclass), dtype=tf.float32,
-                                    initializer=tf.random_uniform_initializer(-1., 1.))
+                                    initializer=tf.random_uniform_initializer(-0.1, 0.1))
                 # b = tf.get_variable(
                 #     'b', (self.nclass,), dtype=tf.float32, initializer=tf.constant_initializer(0.))
             return tf.matmul(input, P)
@@ -72,13 +72,14 @@ class BLSE(object):
             """
             with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
                 W_source = tf.get_variable(
-                    'W_source', dtype=tf.float32, initializer=tf.constant(np.identity(args.vec_dim, dtype=np.float32)))
+                    'W_source', dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
+                self.W_source = W_source
                 W_target = tf.get_variable(
-                    'W_target', dtype=tf.float32, initializer=tf.constant(np.identity(args.vec_dim, dtype=np.float32)))
+                    'W_target', dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
             source_emb = tf.matmul(source_original_emb,
-                                   W_source, name='map_source')
+                                   tf.add(W_source, np.identity(args.vec_dim)), name='map_source')
             target_emb = tf.matmul(target_original_emb,
-                                   W_target, name='map_target')
+                                   tf.add(W_target, np.identity(args.vec_dim)), name='map_target')
             return source_emb, target_emb
 
         self.source_original_emb = tf.placeholder(
@@ -162,8 +163,8 @@ class BLSE(object):
                     self.corpus: xs,
                     self.labels: ys,
                 }
-                closs_, ploss_, loss_, acc_, _ = self.sess.run(
-                    [self.classification_loss, self.proj_loss, self.loss, self.acc, self.optimizer], feed_dict=feed_dict)
+                closs_, ploss_, loss_, acc_, _, W_source_ = self.sess.run(
+                    [self.classification_loss, self.proj_loss, self.loss, self.acc, self.optimizer, self.W_source], feed_dict=feed_dict)
 
                 closs += closs_
                 ploss += ploss_
@@ -174,6 +175,7 @@ class BLSE(object):
                 nbatch, loss / nbatch, acc / nbatch
             logging.info('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  train_acc: %.2f' %
                          (epoch, loss, closs, ploss, acc))
+            logging.debug('W_source:', W_source_[:8, :8] + np.identity(8))
             if (epoch + 1) % 10 == 0:
                 self.save(self.savepath)
 
@@ -256,7 +258,8 @@ def evaluate(pred, true_y, binary=False):
 
 def main(args):
     logging.info('fitting BLSE model with parameters: %s' % str(args))
-    source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y = load_data(binary=args.binary)  # numpy array
+    source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y = load_data(
+        binary=args.binary)  # numpy array
     with tf.Session() as sess:
         model = BLSE(sess, source_wordvec.embedding, target_wordvec.embedding,
                      dict_obj, args.save_path, binary=args.binary)
