@@ -72,10 +72,10 @@ class BLSE(object):
             """
             with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
                 W_source = tf.get_variable(
-                    'W_source', dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
+                    'W_source', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
                 self.W_source = W_source
                 W_target = tf.get_variable(
-                    'W_target', dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
+                    'W_target', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
             source_emb = tf.matmul(source_original_emb,
                                    tf.add(W_source, np.identity(args.vec_dim)), name='map_source')
             target_emb = tf.matmul(target_original_emb,
