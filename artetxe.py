@@ -55,20 +55,22 @@ def main(args):
             X = np.sum(emb[X], axis=1)
             return X, y
 
+        W_target = get_W_target(source_wordvec.embedding,
+                            target_wordvec.embedding, dict_obj)
+        proj_target_emb = np.matmul(target_wordvec.embedding, W_target)
+
         train_x, train_y = pad_and_shuffle(*source_dataset.train, source_pad_id, source_wordvec.embedding, args.binary)
-        dev_x, dev_y = pad_and_shuffle(*target_dataset.test, target_pad_id, target_wordvec.embedding, args.binary)
-        test_x, test_y = pad_and_shuffle(*target_dataset.train, target_pad_id, target_wordvec.embedding, args.binary)
+        dev_x, dev_y = pad_and_shuffle(*target_dataset.test, target_pad_id, proj_target_emb, args.binary)
+        test_x, test_y = pad_and_shuffle(*target_dataset.train, target_pad_id, proj_target_emb, args.binary)
 
         # with open('./tmp/pickled_%dclass.bin' % (2 if args.binary else 4), 'wb') as fout:
         #     pickle.dump((source_wordvec, target_wordvec, dict_obj, train_x,
         # train_y, dev_x, dev_y, test_x, test_y), fout, protocol=4)
 
-    W_target = get_W_target(source_wordvec.embedding,
-                            target_wordvec.embedding, dict_obj)
-    proj_target_emb = np.matmul(target_wordvec.embedding, W_target)
+    
 
     param_grid = {
-        'C': [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30],
+        'C': [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30],
     }
     cv_split = PredefinedSplit(np.concatenate(
         (np.full(train_x.shape[0], -1), np.full(dev_x.shape[0], 0)), axis=0))
@@ -80,8 +82,10 @@ def main(args):
     y = np.concatenate((train_y, dev_y), axis=0)
     clf.fit(X, y)
 
-    print('Test accuracy: %.4f' % clf.score(test_x, test_y))
+    print('Test score: %.4f' % clf.score(test_x, test_y))
+    print('Scorer:', clf.scorer_)
     print('Best params', clf.best_params_)
+    print('CV results:', clf.cv_results_)
 
 
 if __name__ == '__main__':
