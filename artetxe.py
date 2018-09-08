@@ -74,7 +74,7 @@ def main(args):
         (np.full(train_x.shape[0], -1), np.full(dev_x.shape[0], 0)), aixs=0))
     svc = svm.LinearSVC()
 
-    clf = GridSearchCV(svc, param_grid, cv=cv_split, n_jobs=cpu_count(), verbose=3)
+    clf = GridSearchCV(svc, param_grid, scoring='f1_macro', cv=cv_split, n_jobs=cpu_count(), verbose=3)
 
     X = np.concatenate((train_x, dev_x), axis=0)
     y = np.concatenate((train_y, dev_y), axis=0)
