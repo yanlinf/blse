@@ -4,6 +4,7 @@ from sklearn import svm
 from sklearn.model_selection import GridSearchCV, PredefinedSplit
 import argparse
 from utils import utils
+from multiprocessing import cpu_count
 import pickle
 import logging
 
@@ -58,9 +59,9 @@ def main(args):
         dev_x, dev_y = pad_and_shuffle(*target_dataset.test, target_pad_id, target_wordvec.embedding, args.binary)
         test_x, test_y = pad_and_shuffle(*target_dataset.train, target_pad_id, target_wordvec.embedding, args.binary)
 
-        with open('./tmp/pickled_%dclass.bin' % (2 if args.binary else 4), 'wb') as fout:
-            pickle.dump((source_wordvec, target_wordvec, dict_obj, train_x,
-        train_y, dev_x, dev_y, test_x, test_y), fout, protocol=4)
+        # with open('./tmp/pickled_%dclass.bin' % (2 if args.binary else 4), 'wb') as fout:
+        #     pickle.dump((source_wordvec, target_wordvec, dict_obj, train_x,
+        # train_y, dev_x, dev_y, test_x, test_y), fout, protocol=4)
 
     W_target = get_W_target(source_wordvec.embedding,
                             target_wordvec.embedding, dict_obj)
@@ -70,10 +71,10 @@ def main(args):
         'C': [0.01, 0.03, 0.1, 0.3, 1, 3, 10],
     }
     cv_split = PredefinedSplit(np.concatenate(
-        np.full(train_x.shape[0], -1), np.full(dev_x.shape[0], 0)))
+        (np.full(train_x.shape[0], -1), np.full(dev_x.shape[0], 0)), aixs=0))
     svc = svm.LinearSVC()
 
-    clf = GridSearchCV(svc, param_grid, cv=cv_split)
+    clf = GridSearchCV(svc, param_grid, cv=cv_split, n_jobs=cpu_count())
 
     X = np.concatenate((train_x, dev_x), axis=0)
     y = np.concatenate((train_y, dev_y), axis=0)
