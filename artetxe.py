@@ -26,7 +26,7 @@ def get_W_target(source_emb, target_emb, dict_obj):
 def cal_proj_loss(source_emb, target_emb, dict_obj):
     X_source = source_emb[dict_obj[:, 0]]  # shape (dict_size, vec_dim)
     X_target = target_emb[dict_obj[:, 1]]  # shape (dict_size, vec_dim)
-    return np.sum(np.sqaure(X_source - X_target))
+    return np.sum(np.square(X_source - X_target))
 
 
 def main(args):
@@ -58,6 +58,8 @@ def main(args):
             X, y = X[perm], y[perm]
             if binary:
                 y = (y >= 2).astype(np.int32)
+            print(emb[:5])
+            print(emb[X].shape)
             X = np.sum(emb[X], axis=1)
             return X, y
 
