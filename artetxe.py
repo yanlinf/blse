@@ -71,7 +71,7 @@ def main(args):
         'C': [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30],
     }
     cv_split = PredefinedSplit(np.concatenate(
-        (np.full(train_x.shape[0], -1), np.full(dev_x.shape[0], 0)), aixs=0))
+        (np.full(train_x.shape[0], -1), np.full(dev_x.shape[0], 0)), axis=0))
     svc = svm.LinearSVC()
 
     clf = GridSearchCV(svc, param_grid, scoring='f1_macro', cv=cv_split, n_jobs=cpu_count(), verbose=3)
