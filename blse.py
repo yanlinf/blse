@@ -314,7 +314,7 @@ if __name__ == '__main__':
                         default='./emb/es.bin')
     parser.add_argument('-d', '--dictionary',
                         help='bilingual dictionary of source and target language (default: ./lexicons/bingliu/en-es.txt',
-                        default='./lexicons/bingliu/en-eu.txt')
+                        default='./lexicons/bingliu/en-es.txt')
     parser.add_argument('-sd', '--source_dataset',
                         help='sentiment dataset of the source language',
                         default='./datasets/en/opener_sents/')
