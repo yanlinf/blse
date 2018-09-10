@@ -166,10 +166,12 @@ class WordVecs(object):
         norms = np.sqrt(np.sum(self._matrix**2, axis=1))
         norms[norms == .0] = 1
         self._matrix /= norms[:, np.newaxis]
+        return self
 
     def mean_center(self):
         avg = np.mean(self._matrix, axis=0)
         self._matrix -= avg
+        return self
 
 
 class BilingualDict(object):
