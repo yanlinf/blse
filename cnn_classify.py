@@ -29,10 +29,10 @@ class SentiCNN(object):
 
         W1 = tf.get_variable('W1', (self.vec_dim, 1, self.num_filters), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
         conv1 = tf.nn.conv1d(self.inputs, W1, self.vec_dim, 'VALID') # shape (batch_size, length, nchannels)
-        conv1 = tf.nn.relu(conv1)
-        pool1 = tf.reduce_max(conv1, axis=1) # shape (batch_size, nchannels)
+        relu1 = tf.nn.relu(conv1)
+        pool1 = tf.reduce_max(relu1, axis=1) # shape (batch_size, nchannels)
         pool1 = tf.nn.dropout(pool1, keep_prob=self.keep_prob)
-        self.maxpos = tf.argmax(conv1, axis=1)
+        self.relu1 = relu1
 
         W2 = tf.get_variable('W2', (self.num_filters, self.nclasses), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
         b2 = tf.get_variable('b2', (self.nclasses,), tf.float32, initializer=tf.zeros_initializer())
@@ -49,7 +49,7 @@ class SentiCNN(object):
             for index, offset in enumerate(range(0, nsample, self.batch_size)):
                 xs = train_x[offset:offset + self.batch_size]
                 ys = train_y[offset:offset + self.batch_size]
-                _, loss_, pred_, maxpos_= self.sess.run([self.optimizer, self.loss, self.pred, self.maxpos], 
+                _, loss_, pred_, relu1_= self.sess.run([self.optimizer, self.loss, self.pred, self.relu1], 
                                                         {self.inputs: xs, self.labels: ys, self.keep_prob: self.dropout})
                 loss += loss_ * len(xs)
                 pred[offset:offset + self.batch_size] = pred_
@@ -70,9 +70,19 @@ class SentiCNN(object):
         else:
             raise NotImplementedError()
 
+    def predict_senti_word_ids(self, test_x):
+        relu_ = self.sess.run(self.relu1, {self.inputs: test_x, self.keep_prob: 1.}) # shape (nsamples, length, nchannels)
+        res = [[] for _ in range(relu_.shape[0])]
+        nchannel = relu_.shape[2]
+        for i, sample in enumerate(relu_):
+            for channel_id in range(nchannel):
+                if np.max(sample[:, channel_id]) > 0.:
+                    res[i].append(np.argmax(sample[:, channel_id]))
+        return res
 
-def make_data(X, y, embedding, vec_dim, binary):
-    X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=64, padding='post')
+
+def make_data(X, y, embedding, vec_dim, binary, pad_id):
+    X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=64, padding='post', value=pad_id)
     X = embedding[X].reshape((X.shape[0], vec_dim * 64, 1))
     perm = np.random.permutation(X.shape[0])
     X, y = X[perm], y[perm]
@@ -81,17 +91,28 @@ def make_data(X, y, embedding, vec_dim, binary):
     return X, y
 
 
+def print_senti_words(X, wordvec, senti_ids):
+    print('---------------------------------------------------------')
+    for sent, ids in zip(X, senti_ids):
+        print(' '.join([wordvec.index2word(j) for j in sent]))
+        ids = [j for j in ids if j < len(sent)]
+        print('|'.join([wordvec.index2word(sent[j]) for j in ids]))
+        print('---------------------------------------------------------')
+
+
 def main(args):
     logging.info(str(args))
     source_wordvec = utils.WordVecs(args.source_embedding, normalize=args.normalize)
+    source_pad_id = source_wordvec.add_word('<PAD>', np.zeros(300))
     source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvec)
-    train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary)
-    test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary)
+    train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id)
+    test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id)
     with tf.Session() as sess:
         model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4),
                          args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
+        print_senti_words(source_dataset.test[0][:30], source_wordvec, model.predict_senti_word_ids(test_x[:30]))
 
 
 if __name__ == '__main__':
