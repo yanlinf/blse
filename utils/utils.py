@@ -23,13 +23,17 @@ class WordVecs(object):
         if specified, out-of-vocabulary words won't be loaded
     encoding: str
         specify the encoding with which to decode the bytes
+    normalize: bool
+        mean center the word vectors and normalize to unit length
     """
 
-    def __init__(self, file, vocab=None, encoding='utf-8'):
+    def __init__(self, file, vocab=None, encoding='utf-8', normalize=False):
         self.vocab = set(vocab) if vocab else None
         self.encoding = encoding
         self.vocab_size, self.vec_dim, self._matrix, self._w2idx, self._idx2w = self._read_vecs(
             file)
+        if normalize:
+            self.mean_center().normalize()
 
     def __getitem__(self, word):
         """
