@@ -77,7 +77,7 @@ def main(args):
     train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary)
     test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary)
     with tf.Session() as sess:
-        model = SentiCNN(sess, args.vec_dim, (2 if args.binary else 4), args.learning_rate, args.batch_size, args.epochs)
+        model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4), args.learning_rate, args.batch_size, args.epochs)
         model.fit(train_x, train_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
 
