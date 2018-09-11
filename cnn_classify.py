@@ -22,12 +22,15 @@ class SentiCNN(object):
         self.sess.run(tf.global_variables_initializer())
 
     def _build_graph(self):
+        self.keep_prob = tf.placeholder(tf.float32)
         self.inputs = tf.placeholder(tf.float32, shape=(None, None, 1))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
 
         W1 = tf.get_variable('W1', (self.vec_dim, 1, self.num_filters), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
         conv1 = tf.nn.conv1d(self.inputs, W1, self.vec_dim, 'VALID') # shape (batch_size, length, nchannels)
+        conv1 = tf.nn.relu(conv1)
         pool1 = tf.reduce_max(conv1, axis=1) # shape (batch_size, nchannels)
+        pool1 = tf.nn.dropout(pool1, keep_prob=self.keep_prob)
         self.maxpos = tf.argmax(conv1, axis=1)
 
         W2 = tf.get_variable('W2', (self.num_filters, self.nclasses), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
@@ -45,7 +48,8 @@ class SentiCNN(object):
             for index, offset in enumerate(range(0, nsample, self.batch_size)):
                 xs = train_x[offset:offset + self.batch_size]
                 ys = train_y[offset:offset + self.batch_size]
-                _, loss_, pred_, maxpos_= self.sess.run([self.optimizer, self.loss, self.pred, self.maxpos], {self.inputs: xs, self.labels: ys})
+                _, loss_, pred_, maxpos_= self.sess.run([self.optimizer, self.loss, self.pred, self.maxpos], 
+                                                        {self.inputs: xs, self.labels: ys, self.keep_prob: 0.5})
                 loss += loss_ * len(xs)
                 pred[offset:offset + self.batch_size] = pred_
             loss /= nsample
@@ -56,7 +60,7 @@ class SentiCNN(object):
                 logging.info('Test f1_macro: %.4f' % self.score(test_x, test_y))
 
     def predict(self, test_x):
-        pred = self.sess.run(self.pred, {self.inputs: test_x})
+        pred = self.sess.run(self.pred, {self.inputs: test_x, self.keep_prob: 1.})
         return pred
 
     def score(self, test_x, test_y, scorer='f1_macro'):
