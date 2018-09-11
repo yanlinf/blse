@@ -77,11 +77,10 @@ def main(args):
     logging.info(str(args))
 
     # load word embedding
-    source_wordvec = utils.WordVecs(args.source_embedding)
-    target_wordvec = utils.WordVecs(args.target_embedding)
-    if args.normalize:
-        source_wordvec.mean_center().normalize()
-        target_wordvec.mean_center().normalize()
+    source_wordvec = utils.WordVecs(
+        args.source_embedding, normalize=args.normalize)
+    target_wordvec = utils.WordVecs(
+        args.target_embedding, normalize=args.normalize)
 
     # load bilingual lexicon
     dict_obj = utils.BilingualDict(args.dictionary).filter(
@@ -122,13 +121,13 @@ def main(args):
         'C': [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100],
     }
     svc = svm.LinearSVC()
-    clf = GridSearchCV(svc, param_grid, scoring='f1_macro',
-                       cv=None, n_jobs=cpu_count(), verbose=3)
+    clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count())
 
     clf.fit(train_x, train_y)
 
     print('Test F1_macro: %.4f' % clf.score(test_x, test_y))
     print('Best params: ', clf.best_params_)
+    print('CV result:', clf.cv_results_)
 
 
 if __name__ == '__main__':
