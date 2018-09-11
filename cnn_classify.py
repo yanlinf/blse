@@ -10,7 +10,7 @@ class SentiCNN(object):
     """
     CNN for sentiment classification.
     """
-    def __init__(self, sess, vec_dim, nclasses, learning_rate, batch_size, num_epoch, num_filters):
+    def __init__(self, sess, vec_dim, nclasses, learning_rate, batch_size, num_epoch, num_filters, dropout):
         self.sess = sess
         self.vec_dim = vec_dim
         self.nclasses = nclasses
@@ -18,6 +18,7 @@ class SentiCNN(object):
         self.batch_size = batch_size
         self.num_epoch = num_epoch
         self.num_filters = num_filters
+        self.dropout = dropout
         self._build_graph()
         self.sess.run(tf.global_variables_initializer())
 
@@ -49,7 +50,7 @@ class SentiCNN(object):
                 xs = train_x[offset:offset + self.batch_size]
                 ys = train_y[offset:offset + self.batch_size]
                 _, loss_, pred_, maxpos_= self.sess.run([self.optimizer, self.loss, self.pred, self.maxpos], 
-                                                        {self.inputs: xs, self.labels: ys, self.keep_prob: 0.5})
+                                                        {self.inputs: xs, self.labels: ys, self.keep_prob: self.dropout})
                 loss += loss_ * len(xs)
                 pred[offset:offset + self.batch_size] = pred_
             loss /= nsample
@@ -87,7 +88,8 @@ def main(args):
     train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary)
     test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary)
     with tf.Session() as sess:
-        model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4), args.learning_rate, args.batch_size, args.epochs, args.filters)
+        model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4),
+                         args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
 
@@ -110,9 +112,13 @@ if __name__ == '__main__':
                         default=50,
                         type=int)
     parser.add_argument('--filters',
-                        help='number of conv filters(default: 32)',
+                        help='number of conv filters (default: 32)',
                         default=32,
                         type=int)
+    parser.add_argument('--dropout',
+                        help='dropout rate (default: 0.5)',
+                        default=0.5,
+                        type=float)
     parser.add_argument('-se', '--source_embedding',
                         help='monolingual word embedding of the source language (default: ./emb/en.bin)',
                         default='./emb/en.bin')
