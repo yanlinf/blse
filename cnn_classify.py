@@ -91,10 +91,11 @@ def make_data(X, y, embedding, vec_dim, binary, pad_id):
     return X, y
 
 
-def print_senti_words(X, wordvec, senti_ids):
+def print_senti_words(X, y, pred, wordvec, senti_ids):
     print('---------------------------------------------------------')
-    for sent, ids in zip(X, senti_ids):
+    for sent, label, pred_label, ids in zip(X, y, pred, senti_ids):
         print(' '.join([wordvec.index2word(j) for j in sent]))
+        print('true label:', y, '   predicted label: ', pred_label)
         ids = [j for j in ids if j < len(sent)]
         print('|'.join([wordvec.index2word(sent[j]) for j in ids]))
         print('---------------------------------------------------------')
@@ -112,7 +113,10 @@ def main(args):
                          args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
-        print_senti_words(source_dataset.test[0][:30], source_wordvec, model.predict_senti_word_ids(test_x[:30]))
+        print_senti_words(source_dataset.test[0][:50], source_dataset.test[1][:50], 
+                          model.predict(test_x[:50]), source_wordvec, model.predict_senti_word_ids(test_x[:50]))
+        print_senti_words(source_dataset.train[0][:50], source_dataset.train[1][:50], 
+                          model.predict(train_x[:50]) source_wordvec, model.predict_senti_word_ids(train_x[:50]))
 
 
 if __name__ == '__main__':
