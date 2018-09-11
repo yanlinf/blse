@@ -116,7 +116,7 @@ def main(args):
         print_senti_words(source_dataset.test[0][:50], source_dataset.test[1][:50], 
                           model.predict(test_x[:50]), source_wordvec, model.predict_senti_word_ids(test_x[:50]))
         print_senti_words(source_dataset.train[0][:50], source_dataset.train[1][:50], 
-                          model.predict(train_x[:50]) source_wordvec, model.predict_senti_word_ids(train_x[:50]))
+                          model.predict(train_x[:50]), source_wordvec, model.predict_senti_word_ids(train_x[:50]))
 
 
 if __name__ == '__main__':
