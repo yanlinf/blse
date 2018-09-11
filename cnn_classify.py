@@ -84,7 +84,7 @@ def main(args):
     test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary)
     with tf.Session() as sess:
         model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4), args.learning_rate, args.batch_size, args.epochs, args.filters)
-        model.fit(train_x, train_y)
+        model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
 
 
@@ -98,8 +98,8 @@ if __name__ == '__main__':
                         type=float,
                         default=0.001)
     parser.add_argument('-e', '--epochs',
-                        help='training epochs (default: 50)',
-                        default=50,
+                        help='training epochs (default: 200)',
+                        default=200,
                         type=int)
     parser.add_argument('-bs', '--batch_size',
                         help='training batch size (default: 50)',
