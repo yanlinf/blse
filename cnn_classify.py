@@ -18,22 +18,23 @@ class SentiCNN(object):
         self.batch_size = batch_size
         self.num_epoch = num_epoch
         self._build_graph()
+        self.sess.run(tf.global_variables_initializer())
 
     def _build_graph(self):
         self.inputs = tf.placeholder(tf.float32, shape=(None, None, 1))
-        self.labels = tf.placeholder(tf.float32, shape=(None,))
+        self.labels = tf.placeholder(tf.int32, shape=(None,))
 
-        W1 = tf.get_variable('W1', (1, self.vec_dim, 32), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
-        conv1 = tf.nn.conv1d(inputs, W1, self.vec_dim, 'VALID') # shape (batch_size, length, nchannels)
-        pool1 = tf.reduce_max(conv1, axis=1) # shape（batch_size, nchannels)
+        W1 = tf.get_variable('W1', (self.vec_dim, 1, 32), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+        conv1 = tf.nn.conv1d(self.inputs, W1, self.vec_dim, 'VALID') # shape (batch_size, length, nchannels)
+        pool1 = tf.reduce_max(conv1, axis=1) # shape (batch_size, nchannels)
         self.maxpos = tf.argmax(conv1, axis=1)
 
-        W2 = tf.get_variable('W2', (32, nclasses), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
-        b2 = tf.get_variable('b2', (nclasses,), tf.float32, initializer=tf.zeros_initializer())
+        W2 = tf.get_variable('W2', (32, self.nclasses), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+        b2 = tf.get_variable('b2', (self.nclasses,), tf.float32, initializer=tf.zeros_initializer())
         logits = tf.matmul(pool1, W2) + b2
         self.pred = tf.argmax(logits, axis=1)
         self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.labels, self.nclasses), logits)
-        self.optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
+        self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
     def fit(self, train_x, train_y):
         nsample = len(train_x)
@@ -48,10 +49,11 @@ class SentiCNN(object):
                 pred[offset:offset + self.batch_size] = pred_
             loss /= nsample
             fscore = f1_score(train_y, pred, average='macro')
-            logging.info('epoch: %d  f1_macro: %.4f  loss: %.6f' % (epoch, f1_score, loss))
+            logging.info('epoch: %d  f1_macro: %.4f  loss: %.6f' % (epoch, fscore, loss))
 
     def predict(self, test_x):
         pred = self.sess.run(self.pred, {self.inputs: test_x})
+        return pred
 
     def score(self, test_x, test_y, scorer='f1_macro'):
         if scorer == 'f1_macro':
@@ -62,7 +64,7 @@ class SentiCNN(object):
 
 def make_data(X, y, embedding, vec_dim, binary):
     X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=64, padding='post')
-    X = embedding[X].reshape((X.shape[0], vec_dim * 64))
+    X = embedding[X].reshape((X.shape[0], vec_dim * 64, 1))
     perm = np.random.permutation(X.shape[0])
     X, y = X[perm], y[perm]
     if binary:
