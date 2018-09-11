@@ -10,13 +10,14 @@ class SentiCNN(object):
     """
     CNN for sentiment classification.
     """
-    def __init__(self, sess, vec_dim, nclasses, learning_rate, batch_size, num_epoch):
+    def __init__(self, sess, vec_dim, nclasses, learning_rate, batch_size, num_epoch, num_filters):
         self.sess = sess
         self.vec_dim = vec_dim
         self.nclasses = nclasses
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.num_epoch = num_epoch
+        self.num_filters = num_filters
         self._build_graph()
         self.sess.run(tf.global_variables_initializer())
 
@@ -24,19 +25,19 @@ class SentiCNN(object):
         self.inputs = tf.placeholder(tf.float32, shape=(None, None, 1))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
 
-        W1 = tf.get_variable('W1', (self.vec_dim, 1, 32), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+        W1 = tf.get_variable('W1', (self.vec_dim, 1, self.num_filters), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
         conv1 = tf.nn.conv1d(self.inputs, W1, self.vec_dim, 'VALID') # shape (batch_size, length, nchannels)
         pool1 = tf.reduce_max(conv1, axis=1) # shape (batch_size, nchannels)
         self.maxpos = tf.argmax(conv1, axis=1)
 
-        W2 = tf.get_variable('W2', (32, self.nclasses), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+        W2 = tf.get_variable('W2', (self.num_filters, self.nclasses), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
         b2 = tf.get_variable('b2', (self.nclasses,), tf.float32, initializer=tf.zeros_initializer())
         logits = tf.matmul(pool1, W2) + b2
         self.pred = tf.argmax(logits, axis=1)
         self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.labels, self.nclasses), logits)
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
-    def fit(self, train_x, train_y):
+    def fit(self, train_x, train_y, test_x=None, test_y=None):
         nsample = len(train_x)
         for epoch in range(self.num_epoch):
             loss = 0.
@@ -50,6 +51,9 @@ class SentiCNN(object):
             loss /= nsample
             fscore = f1_score(train_y, pred, average='macro')
             logging.info('epoch: %d  f1_macro: %.4f  loss: %.6f' % (epoch, fscore, loss))
+
+            if test_x is not None and test_y is not None:
+                logging.info('Test f1_macro: %.4f' % self.score(test_x, test_y))
 
     def predict(self, test_x):
         pred = self.sess.run(self.pred, {self.inputs: test_x})
@@ -79,7 +83,7 @@ def main(args):
     train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary)
     test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary)
     with tf.Session() as sess:
-        model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4), args.learning_rate, args.batch_size, args.epochs)
+        model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4), args.learning_rate, args.batch_size, args.epochs, args.filters)
         model.fit(train_x, train_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
 
@@ -100,6 +104,10 @@ if __name__ == '__main__':
     parser.add_argument('-bs', '--batch_size',
                         help='training batch size (default: 50)',
                         default=50,
+                        type=int)
+    parser.add_argument('--filters',
+                        help='number of conv filters(default: 32)',
+                        default=32,
                         type=int)
     parser.add_argument('-se', '--source_embedding',
                         help='monolingual word embedding of the source language (default: ./emb/en.bin)',
