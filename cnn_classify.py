@@ -95,7 +95,7 @@ def print_senti_words(X, y, pred, wordvec, senti_ids):
     print('---------------------------------------------------------')
     for sent, label, pred_label, ids in zip(X, y, pred, senti_ids):
         print(' '.join([wordvec.index2word(j) for j in sent]))
-        print('true label:', y, '   predicted label: ', pred_label)
+        print('true label:', label, '   predicted label: ', pred_label)
         ids = [j for j in ids if j < len(sent)]
         print('|'.join([wordvec.index2word(sent[j]) for j in ids]))
         print('---------------------------------------------------------')
