@@ -223,12 +223,12 @@ def main(args):
 
         if args.model != '':
             model.load(args.model)
-
-        best_f1 = model.fit(train_x, train_y, source_words, target_words, test_x, test_y)
+        else:
+            best_f1 = model.fit(train_x, train_y, source_words, target_words, test_x, test_y)
+            logging.info('Best dev f1_macro: %.4f' % best_f1)
         # model.save(args.save_path)
 
         logging.info('Test f1_macro: %.4f' % model.score(dev_x, dev_y))
-        logging.info('Best dev f1_macro: %.4f' % best_f1)
 
         # pprint([' '.join([str(w) for w in line if w != '<PAD>'])
         #         for line in source_wordvec.index2word(train_x[:30])])
