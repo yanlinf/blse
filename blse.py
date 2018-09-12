@@ -26,11 +26,8 @@ class BLSE(object):
     binary: bool, optional (deafult: False)
     """
 
-    def __init__(self, sess, src_emb, tgt_emb, dictionary, savepath, vec_dim, alpha, learning_rate, batch_size, epochs, binary):
+    def __init__(self, sess, savepath, vec_dim, alpha, learning_rate, batch_size, epochs, binary):
         self.nclass = 2 if binary else 4
-        self.source_emb_obj = src_emb
-        self.target_emb_obj = tgt_emb
-        self.dict_obj = dictionary
         self.sess = sess
         self.savepath = savepath
         self.vec_dim = vec_dim
@@ -214,8 +211,8 @@ def main(args):
     source_wordvec, target_wordvec, source_words, target_words, train_x, train_y, test_x, test_y = load_data(
         binary=args.binary)  # numpy array
     with tf.Session() as sess:
-        model = BLSE(sess, source_wordvec.embedding, target_wordvec.embedding, dict_obj, args.save_path,
-                     args.vector_dim, args.alpha, args.learning_rate, args.batch_size, args.epochs, binary=args.binary)
+        model = BLSE(sess, args.save_path, args.vector_dim, args.alpha, args.learning_rate,
+                     args.batch_size, args.epochs, binary=args.binary)
 
         if args.model != '':
             model.load(args.model)
@@ -242,7 +239,7 @@ if __name__ == '__main__':
                         action='store_true')
     parser.add_argument('-sl', '--source_lang',
                         help='source language: en/es/ca/eu (default: en)',
-                        default='eu')
+                        default='en')
     parser.add_argument('-tl', '--target_lang',
                         help='target language: en/es/ca/eu (default: es)',
                         default='es')
