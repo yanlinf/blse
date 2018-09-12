@@ -119,6 +119,7 @@ class BLSE(object):
         """
         nsample = len(train_x)
         nbatch = nsample // self.batch_size
+        best_test_f1 = 0.
         for epoch in range(self.epochs):
             closs, ploss, loss = 0., 0., 0.
             pred = np.zeros(nsample)
@@ -145,7 +146,10 @@ class BLSE(object):
                 self.save(self.savepath)
 
             if test_x is not None and test_y is not None:
-                logging.info('Test f1_macro: %.4f' % self.score(test_x, test_y))
+                test_f1 = self.score(test_x, test_y)
+                logging.info('Test f1_macro: %.4f' % test_f1)
+                best_test_f1 = max(best_test_f1, test_f1)
+        return best_test_f1
 
     def predict(self, test_x):
         return self.sess.run(self.pred_test, feed_dict={self.test_x: test_x})
@@ -217,10 +221,11 @@ def main(args):
         if args.model != '':
             model.load(args.model)
 
-        model.fit(train_x, train_y, source_words, target_words, test_x, test_y)
+        best_f1 = model.fit(train_x, train_y, source_words, target_words, test_x, test_y)
         model.save(args.save_path)
 
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
+        logging.info('Best Test f1_macro: %.4f' % best_f1)
 
         # pprint([' '.join([str(w) for w in line if w != '<PAD>'])
         #         for line in source_wordvec.index2word(train_x[:30])])
