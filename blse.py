@@ -142,13 +142,14 @@ class BLSE(object):
             closs, ploss, loss, = closs / nbatch, ploss / nbatch, loss / nbatch
             fscore = f1_score(train_y, pred, average='macro')
             logging.info('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  f1_macro: %.4f' % (epoch, loss, closs, ploss, fscore))
-            if (epoch + 1) % 50 == 0:
-                self.save(self.savepath)
+            # if (epoch + 1) % 50 == 0:
+            #     self.save(self.savepath)
 
             if test_x is not None and test_y is not None:
                 test_f1 = self.score(test_x, test_y)
                 logging.info('Test f1_macro: %.4f' % test_f1)
                 best_test_f1 = max(best_test_f1, test_f1)
+                self.save(self.savepath)
         return best_test_f1
 
     def predict(self, test_x):
@@ -197,8 +198,9 @@ def load_data(binary=False):
 
     train_x, train_y = lookup_and_shuffle(*source_dataset.train, source_wordvec.embedding, binary)
     test_x, test_y = lookup_and_shuffle(*target_dataset.train, target_wordvec.embedding, binary)
+    dev_x, dev_y = lookup_and_shuffle(*target_dataset.test, target_wordvec.embedding, binary)
 
-    return source_wordvec, target_wordvec, source_words, target_words, train_x, train_y, test_x, test_y
+    return source_wordvec, target_wordvec, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y
 
 
 # def evaluate(pred, true_y, binary=False):
@@ -212,7 +214,7 @@ def load_data(binary=False):
 
 def main(args):
     logging.info('fitting BLSE model with parameters: %s' % str(args))
-    source_wordvec, target_wordvec, source_words, target_words, train_x, train_y, test_x, test_y = load_data(
+    source_wordvec, target_wordvec, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y = load_data(
         binary=args.binary)  # numpy array
     with tf.Session() as sess:
         model = BLSE(sess, args.save_path, args.vector_dim, args.alpha, args.learning_rate,
@@ -222,10 +224,10 @@ def main(args):
             model.load(args.model)
 
         best_f1 = model.fit(train_x, train_y, source_words, target_words, test_x, test_y)
-        model.save(args.save_path)
+        # model.save(args.save_path)
 
-        logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
-        logging.info('Best Test f1_macro: %.4f' % best_f1)
+        logging.info('Test f1_macro: %.4f' % model.score(dev_x, dev_y))
+        logging.info('Best dev f1_macro: %.4f' % best_f1)
 
         # pprint([' '.join([str(w) for w in line if w != '<PAD>'])
         #         for line in source_wordvec.index2word(train_x[:30])])
