@@ -84,7 +84,7 @@ class BLSE(object):
         self.proj_loss = get_projection_loss(self.source_words, self.target_words)
 
         # compute classification loss
-        train_logits = softmax_layer(project_source(train_x))
+        train_logits = softmax_layer(project_source(self.train_x))
         self.classification_loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.train_y, self.nclass), train_logits)
 
         # compute full loss
@@ -94,7 +94,7 @@ class BLSE(object):
         self.pred_train = tf.argmax(train_logits, axis=1, output_type=tf.int32)
 
         # predict test labels:
-        test_logits = softmax_layer(project_target(test_x))
+        test_logits = softmax_layer(project_target(self.test_x))
         self.pred_test = tf.argmax(test_logits, axis=1, output_type=tf.int32)
 
         self.global_step = tf.Variable(0,
