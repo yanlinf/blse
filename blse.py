@@ -7,7 +7,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 from pprint import pprint
-from sklearn.metrics import f1_score, accuracy_score
+from sklearn.metrics import f1_score
 import logging
 from utils import utils
 
@@ -26,13 +26,18 @@ class BLSE(object):
     binary: bool, optional (deafult: False)
     """
 
-    def __init__(self, sess, src_emb, tgt_emb, dictionary, savepath, binary=False):
+    def __init__(self, sess, src_emb, tgt_emb, dictionary, savepath, vec_dim, alpha, learning_rate, batch_size, epochs, binary):
         self.nclass = 2 if binary else 4
         self.source_emb_obj = src_emb
         self.target_emb_obj = tgt_emb
         self.dict_obj = dictionary
         self.sess = sess
         self.savepath = savepath
+        self.vec_dim = vec_dim
+        self.alpha = alpha
+        self.learning_rate = learning_rate
+        self.batch_size = batch_size
+        self.epochs = epochs
         self._build_graph()
         self.sess.run(tf.global_variables_initializer())
         self.saver = tf.train.Saver()
@@ -44,27 +49,20 @@ class BLSE(object):
         def project_source(vecs):
             with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
                 W_source = tf.get_variable(
-                    'W_source', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
+                    'W_source', (self.vec_dim, self.vec_dim), dtype=tf.float32, initializer=tf.constant_initializer(np.identity(self.vec_dim)))
                 self.W_source = W_source
 
-            return tf.matmul(vecs, W_source + np.identity(args.vec_dim))
+            return tf.matmul(vecs, W_source + np.identity(self.vec_dim))
 
         def project_target(vecs):
             with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
                 W_target = tf.get_variable(
-                    'W_target', (args.vec_dim, args.vec_dim), dtype=tf.float32, initializer=tf.random_uniform_initializer(-0.1, 0.1))
+                    'W_target', (self.vec_dim, self.vec_dim), dtype=tf.float32, initializer=tf.constant_initializer(np.identity(self.vec_dim)))
 
-            return tf.matmul(vecs, W_target + np.identity(args.vec_dim))
+            return tf.matmul(vecs, W_target + np.identity(self.vec_dim))
 
-        def get_projection_loss(source_original_emb, target_original_emb, dictionary):
-            """
-            Given the source language embedding, target language embedding and a bilingual dictionary,
-            compute the projection loss.
-            """
-            source_ids, target_ids = dictionary[:, 0], dictionary[:, 1]
-
-            proj_loss = tf.reduce_sum(tf.squared_difference(project_source(tf.nn.embedding_lookup(
-                source_original_emb, source_ids)), project_target(tf.nn.embedding_lookup(target_original_emb, target_ids))))
+        def get_projection_loss(source_words, target_words):
+            proj_loss = tf.reduce_sum(tf.squared_difference(project_source(source_words), project_target(target_words)))
             return proj_loss
 
         def softmax_layer(input):
@@ -74,55 +72,40 @@ class BLSE(object):
             doesn't perform softmax
             """
             with tf.variable_scope('softmax', reuse=tf.AUTO_REUSE):
-                P = tf.get_variable('P', (args.vec_dim, self.nclass), dtype=tf.float32,
-                                    initializer=tf.random_uniform_initializer(-0.1, 0.1))
-                # b = tf.get_variable(
-                #     'b', (self.nclass,), dtype=tf.float32, initializer=tf.constant_initializer(0.))
-            return tf.matmul(input, P)
+                P = tf.get_variable('P', (self.vec_dim, self.nclass), dtype=tf.float32,
+                                    initializer=tf.random_uniform_initializer(-1., 1.))
+                b = tf.get_variable('b', (self.nclass,), dtype=tf.float32, initializer=tf.zeros_initializer())
+            return tf.matmul(input, P) + b
 
-        self.source_original_emb = tf.placeholder(
-            tf.float32, shape=(None, args.vec_dim))
-        self.target_original_emb = tf.placeholder(
-            tf.float32, shape=(None, args.vec_dim))
-        self.corpus = tf.placeholder(tf.int32, shape=(None, 256))
-        self.labels = tf.placeholder(tf.int32, shape=(None,))
-        self.dictionary = tf.placeholder(tf.int32, shape=(None, 2))
-        self.corpus_test = tf.placeholder(tf.int32, shape=(None, 256))
+        self.train_x = tf.placeholder(tf.float32, shape=(None, self.vec_dim))
+        self.train_y = tf.placeholder(tf.int32, shape=(None, self.vec_dim))
+        self.test_x = tf.placeholder(tf.float32, shape=(None, self.vec_dim))
+        self.source_words = tf.placeholder(tf.float32, shape=(None, self.vec_dim))
+        self.target_words = tf.placeholder(tf.float32, shape=(None, self.vec_dim))
 
         # compute projection loss
-        self.proj_loss = get_projection_loss(
-            self.source_original_emb, self.target_original_emb, self.dictionary)
+        self.proj_loss = get_projection_loss(self.source_words, self.target_words)
 
         # compute classification loss
-        sents = tf.reduce_sum(tf.nn.embedding_lookup(
-            self.source_original_emb, self.corpus), axis=1)  # shape: (None, 300)
-        hypothesis = softmax_layer(project_source(sents))
-        self.classification_loss = tf.losses.softmax_cross_entropy(
-            tf.one_hot(self.labels, self.nclass), hypothesis)
+        train_logits = softmax_layer(project_source(train_x))
+        self.classification_loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.train_y, self.nclass), train_logits)
 
         # compute full loss
-        self.loss = (1 - args.alpha) * self.classification_loss + \
-            args.alpha * self.proj_loss
+        self.loss = (1 - self.alpha) * self.classification_loss + self.alpha * self.proj_loss
 
         # compute accuracy counts
-        self.pred = tf.argmax(hypothesis, axis=1, output_type=tf.int32)
-        self.acc = tf.reduce_mean(tf.to_float(
-            tf.equal(self.pred, self.labels)))  # tensor
+        self.pred_train = tf.argmax(train_logits, axis=1, output_type=tf.int32)
 
         # predict test labels:
-        sents_test = tf.reduce_sum(tf.nn.embedding_lookup(
-            self.target_original_emb, self.corpus_test), axis=1)
-        hypothesis_test = softmax_layer(project_target(sents_test))
-        self.pred_test = tf.argmax(
-            hypothesis_test, axis=1, output_type=tf.int32)
+        test_logits = softmax_layer(project_target(test_x))
+        self.pred_test = tf.argmax(test_logits, axis=1, output_type=tf.int32)
 
         self.global_step = tf.Variable(0,
                                        dtype=tf.int32,
                                        trainable=False,
                                        name='global_step')
 
-        self.optimizer = tf.train.AdamOptimizer(
-            args.learning_rate).minimize(self.loss, global_step=self.global_step)
+        self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss, global_step=self.global_step)
 
     def save(self, path):
         """
@@ -133,150 +116,123 @@ class BLSE(object):
     def load(self, path):
         self.saver.restore(self.sess, path)
 
-    def fit(self, train_x, train_y):
+    def fit(self, train_x, train_y, source_words, target_words, test_x=None, test_y=None):
         """
         train the model.
         """
         nsample = len(train_x)
-        nbatch = nsample // args.batch_size
-        logging.debug('accuracy before training: %.2f' % self.sess.run(self.acc, feed_dict={
-            self.source_original_emb: self.source_emb_obj,
-            self.target_original_emb: self.target_emb_obj,
-            self.dictionary: self.dict_obj,
-            self.corpus: train_x[:100],
-            self.labels: train_y[:100],
-        }))
-        for epoch in range(args.epochs):
-            closs, ploss, loss, acc = 0., 0., 0., 0.
-            for index, offset in enumerate(range(0, nsample, args.batch_size)):
+        nbatch = nsample // self.batch_size
+        for epoch in range(self.epochs):
+            closs, ploss, loss = 0., 0., 0.
+            pred = np.zeros(nsample)
+            for index, offset in enumerate(range(0, nsample, self.batch_size)):
                 xs = train_x[offset:offset + args.batch_size]
                 ys = train_y[offset:offset + args.batch_size]
                 feed_dict = {
-                    self.source_original_emb: self.source_emb_obj,
-                    self.target_original_emb: self.target_emb_obj,
-                    self.dictionary: self.dict_obj,
-                    self.corpus: xs,
-                    self.labels: ys,
+                    self.train_x: xs,
+                    self.train_y: ys,
+                    self.source_words: source_words,
+                    self.target_words: target_words,
                 }
-                closs_, ploss_, loss_, acc_, _, W_source_ = self.sess.run(
-                    [self.classification_loss, self.proj_loss, self.loss, self.acc, self.optimizer, self.W_source], feed_dict=feed_dict)
-
+                closs_, ploss_, loss_, _, pred_ = self.sess.run(
+                    [self.classification_loss, self.proj_loss, self.loss, self.optimizer, self.pred_train], feed_dict=feed_dict)
+                pred[offset:offset + args.batch_size] = pred_
                 closs += closs_
                 ploss += ploss_
                 loss += loss_
-                acc += acc_
 
-            closs, ploss, loss, acc = closs / nbatch, ploss / \
-                nbatch, loss / nbatch, acc / nbatch
-            logging.info('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  train_acc: %.2f' %
-                         (epoch, loss, closs, ploss, acc))
-            logging.debug('W_source: %s' %
-                          str(W_source_[:8, :8] + np.identity(8)))
-            if (epoch + 1) % 10 == 0:
+            closs, ploss, loss, = closs / nbatch, ploss / nbatch, loss / nbatch
+            fscore = f1_score(train_y, pred, average='macro')
+            logging.info('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  f1_macro: %.4f' % (epoch, loss, closs, ploss, fscore))
+            if (epoch + 1) % 50 == 0:
                 self.save(self.savepath)
 
+            if test_x is not None and test_y is not None:
+                logging.info('Test f1_macro: %.4f' % self.score(test_x, test_y))
+
     def predict(self, test_x):
-        feed_dict = {
-            self.target_original_emb: self.target_emb_obj,
-            self.corpus_test: test_x,
-        }
-        return self.sess.run(self.pred_test, feed_dict=feed_dict)
+        return self.sess.run(self.pred_test, feed_dict={self.test_x: test_x})
 
-    def predict_source(self, test_x):
-        feed_dict = {
-            self.source_original_emb: self.source_emb_obj,
-            self.corpus: test_x,
-        }
-        return self.sess.run(self.pred, feed_dict=feed_dict)
+    # def predict_source(self, test_x):
+    #     feed_dict = {
+    #         self.source_original_emb: self.source_emb_obj,
+    #         self.corpus: test_x,
+    #     }
+    #     return self.sess.run(self.pred, feed_dict=feed_dict)
 
-    def evaluate(self, test_x, test_y):
-        """
-        Compute the accuracy given the test examples (in source language).
-        """
-        feed_dict = {
-            self.source_original_emb: self.source_emb_obj,
-            self.target_original_emb: self.target_emb_obj,
-            self.dictionary: self.dict_obj,
-            self.corpus: test_x,
-            self.labels: test_y,
-        }
-        acc = self.sess.run(self.acc, feed_dict=feed_dict)
-        logging.info('test accuracy (source language): %.4f' % acc)
+    def score(self, test_x, test_y):
+        return f1_score(test_y, self.predict(test_x), average='macro')
 
 
 def load_data(binary=False):
     """
     Return the data in numpy arrays.
     """
+    def lookup_and_shuffle(X, y, emb, binary=False):
+        X_new = np.zeros((len(X), emb.shape[1]))
+        for i, line in enumerate(X):
+            if len(line) == 0:
+                logging.warning('ZERO LENGTH EXAMPLE')
+                continue
+            X_new[i] = np.mean(emb[line], axis=0)
+        X = X_new
+
+        perm = np.random.permutation(X.shape[0])
+        X, y = X[perm], y[perm]
+        if binary:
+            y = (y >= 2).astype(np.int32)
+        return X, y
+
     source_wordvec = utils.WordVecs(args.source_embedding)
     target_wordvec = utils.WordVecs(args.target_embedding)
-    args.vec_dim = source_wordvec.vec_dim
-
-    source_pad_id = source_wordvec.add_word('<PAD>', np.zeros(300))
-    target_pad_id = target_wordvec.add_word('<PAD>', np.zeros(300))
 
     dict_obj = utils.BilingualDict(args.dictionary).filter(
         lambda x: x[0] != '-').get_indexed_dictionary(source_wordvec, target_wordvec)
+    source_words = source_wordvec.embedding[dict_obj[:, 0]]
+    target_words = target_wordvec.embedding[dict_obj[:, 1]]
 
-    source_dataset = utils.SentimentDataset(
-        args.source_dataset).to_index(source_wordvec)
-    target_dataset = utils.SentimentDataset(
-        args.target_dataset).to_index(target_wordvec)
+    source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvec)
+    target_dataset = utils.SentimentDataset(args.target_dataset).to_index(target_wordvec)
 
-    train_x = tf.keras.preprocessing.sequence.pad_sequences(
-        source_dataset.train[0], maxlen=256, value=source_pad_id)
-    train_y = source_dataset.train[1]
-    perm = np.random.permutation(train_x.shape[0])
-    train_x, train_y = train_x[perm], train_y[perm]
+    train_x, train_y = lookup_and_shuffle(*source_dataset.train, source_wordvec.embedding, binary)
+    test_x, test_y = lookup_and_shuffle(*target_dataset.train, target_wordvec.embedding, binary)
 
-    test_x = tf.keras.preprocessing.sequence.pad_sequences(
-        target_dataset.train[0], maxlen=256, value=target_pad_id)
-    test_y = target_dataset.train[1]
-    perm = np.random.permutation(test_x.shape[0])
-    test_x, test_y = test_x[perm], test_y[perm]
-
-    if binary:
-        test_y = (test_y >= 2).astype(np.int32)
-        train_y = (train_y >= 2).astype(np.int32)
-
-    return source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y
+    return source_wordvec, target_wordvec, source_words, target_words, train_x, train_y, test_x, test_y
 
 
-def evaluate(pred, true_y, binary=False):
-    print(pred[:50])
-    print(true_y[:50])
-    acc = accuracy_score(true_y, pred)
-    if binary:
-        fscore = f1_score(true_y, pred, pos_label=0)
-    else:
-        fscore = f1_score(true_y, pred, average='macro')
-    logging.info('f1_score: %.4f    accuracy: %.2f' % (fscore, acc))
+# def evaluate(pred, true_y, binary=False):
+#     acc = accuracy_score(true_y, pred)
+#     if binary:
+#         fscore = f1_score(true_y, pred, pos_label=0)
+#     else:
+#         fscore = f1_score(true_y, pred, average='macro')
+#     logging.info('f1_score: %.4f    accuracy: %.2f' % (fscore, acc))
 
 
 def main(args):
     logging.info('fitting BLSE model with parameters: %s' % str(args))
-    source_wordvec, target_wordvec, dict_obj, train_x, train_y, test_x, test_y = load_data(
+    source_wordvec, target_wordvec, source_words, target_words, train_x, train_y, test_x, test_y = load_data(
         binary=args.binary)  # numpy array
     with tf.Session() as sess:
-        model = BLSE(sess, source_wordvec.embedding, target_wordvec.embedding,
-                     dict_obj, args.save_path, binary=args.binary)
+        model = BLSE(sess, source_wordvec.embedding, target_wordvec.embedding, dict_obj, args.save_path,
+                     args.vector_dim, args.alpha, args.learning_rate, args.batch_size, args.epochs, binary=args.binary)
 
         if args.model != '':
             model.load(args.model)
 
         evaluate(model.predict(test_x), test_y, args.binary)
 
-        model.fit(train_x, train_y)
+        model.fit(train_x, train_y, source_words, target_words, test_x, test_y)
         model.save(args.save_path)
 
-        evaluate(model.predict(test_x), test_y, args.binary)
+        logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
 
-        pprint([' '.join([str(w) for w in line if w != '<PAD>'])
-                for line in source_wordvec.index2word(train_x[:30])])
-        print()
-        print(model.predict_source(train_x[:30]))
-        print()
-        print(train_y[:30])
+        # pprint([' '.join([str(w) for w in line if w != '<PAD>'])
+        #         for line in source_wordvec.index2word(train_x[:30])])
+        # print()
+        # print(model.predict_source(train_x[:30]))
+        # print()
+        # print(train_y[:30])
 
 
 if __name__ == '__main__':
@@ -295,9 +251,9 @@ if __name__ == '__main__':
                         default=0.001,
                         type=float)
     parser.add_argument('-lr', '--learning_rate',
-                        help='learning rate (default: 0.03)',
+                        help='learning rate (default: 0.01)',
                         type=float,
-                        default=0.03)
+                        default=0.01)
     parser.add_argument('-e', '--epochs',
                         help='training epochs (default: 200)',
                         default=200,
@@ -333,7 +289,7 @@ if __name__ == '__main__':
                         const=logging.DEBUG)
     parser.add_argument('--save_path',
                         help='the dictionary to store the trained model',
-                        default='./checkpoints/')
+                        default='./checkpoints/blse.ckpt')
     parser.add_argument('--model',
                         help='restore from trained model',
                         type=str,
