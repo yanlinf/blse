@@ -147,9 +147,10 @@ class BLSE(object):
 
             if test_x is not None and test_y is not None:
                 test_f1 = self.score(test_x, test_y)
-                logging.info('Test f1_macro: %.4f' % test_f1)
-                best_test_f1 = max(best_test_f1, test_f1)
-                self.save(self.savepath)
+                logging.info('Dev f1_macro: %.4f' % test_f1)
+                if test_f1 > best_test_f1:
+                    best_test_f1 = test_f1
+                    self.save(self.savepath)
         return best_test_f1
 
     def predict(self, test_x):
