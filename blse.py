@@ -75,7 +75,7 @@ class BLSE(object):
             return tf.matmul(input, P) + b
 
         self.train_x = tf.placeholder(tf.float32, shape=(None, self.vec_dim))
-        self.train_y = tf.placeholder(tf.int32, shape=(None, self.vec_dim))
+        self.train_y = tf.placeholder(tf.int32, shape=(None,))
         self.test_x = tf.placeholder(tf.float32, shape=(None, self.vec_dim))
         self.source_words = tf.placeholder(tf.float32, shape=(None, self.vec_dim))
         self.target_words = tf.placeholder(tf.float32, shape=(None, self.vec_dim))
