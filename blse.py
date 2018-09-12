@@ -49,14 +49,14 @@ class BLSE(object):
                     'W_source', (self.vec_dim, self.vec_dim), dtype=tf.float32, initializer=tf.constant_initializer(np.identity(self.vec_dim)))
                 self.W_source = W_source
 
-            return tf.matmul(vecs, W_source + np.identity(self.vec_dim))
+            return tf.matmul(vecs, W_source)
 
         def project_target(vecs):
             with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
                 W_target = tf.get_variable(
                     'W_target', (self.vec_dim, self.vec_dim), dtype=tf.float32, initializer=tf.constant_initializer(np.identity(self.vec_dim)))
 
-            return tf.matmul(vecs, W_target + np.identity(self.vec_dim))
+            return tf.matmul(vecs, W_target)
 
         def get_projection_loss(source_words, target_words):
             proj_loss = tf.reduce_sum(tf.squared_difference(project_source(source_words), project_target(target_words)))
