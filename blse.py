@@ -217,8 +217,6 @@ def main(args):
         if args.model != '':
             model.load(args.model)
 
-        evaluate(model.predict(test_x), test_y, args.binary)
-
         model.fit(train_x, train_y, source_words, target_words, test_x, test_y)
         model.save(args.save_path)
 
