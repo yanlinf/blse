@@ -21,7 +21,6 @@ class AttenAverage(object):
         self.sess.run(tf.global_variables_initializer())
 
     def _build_graph(self):
-        self.keep_prob = tf.placeholder(tf.float32)
         self.inputs = tf.placeholder(tf.float32, shape=(None, None, self.vec_dim))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
 
@@ -52,7 +51,7 @@ class AttenAverage(object):
                 xs = train_x[offset:offset + self.batch_size]
                 ys = train_y[offset:offset + self.batch_size]
                 _, loss_, pred_, = self.sess.run([self.optimizer, self.loss, self.pred], 
-                                                        {self.inputs: xs, self.labels: ys, self.keep_prob: self.dropout})
+                                                        {self.inputs: xs, self.labels: ys})
                 loss += loss_ * len(xs)
                 pred[offset:offset + self.batch_size] = pred_
             loss /= nsample
@@ -105,7 +104,7 @@ def main(args):
     test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id)
     with tf.Session() as sess:
         model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4),
-                         args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout)
+                         args.learning_rate, args.batch_size, args.epochs)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
         print_senti_words(source_dataset.test[0][:50], source_dataset.test[1][:50], 
