@@ -107,7 +107,7 @@ def main(args):
                          args.learning_rate, args.batch_size, args.epochs)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
-        print_senti_words(source_dataset.test[0][:50], source_dataset.test[1][:50], 
+        print_examples_with_attention(source_dataset.test[0][:50], source_dataset.test[1][:50], 
                           model.predict(test_x[:50]), source_wordvec, model.predict_attention_scores(test_x[:50]))
         print_examples_with_attention(source_dataset.train[0][:50], source_dataset.train[1][:50], 
                           model.predict(train_x[:50]), source_wordvec, model.predict_attention_scores(train_x[:50]))
