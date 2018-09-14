@@ -115,8 +115,8 @@ def main(args):
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
 
-        train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle)
-        test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle)
+        train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
+        test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
 
         print_senti_words(source_dataset.test[0][:50], source_dataset.test[1][:50], 
                           model.predict(test_x[:50]), source_wordvec, model.predict_senti_word_ids(test_x[:50]))
