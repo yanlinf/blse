@@ -81,8 +81,8 @@ class SentiCNN(object):
         return res
 
 
-def make_data(X, y, embedding, vec_dim, binary, pad_id):
-    X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=64, padding='post', value=pad_id, shuffle=True)
+def make_data(X, y, embedding, vec_dim, binary, pad_id, shuffle=True):
+    X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=64, padding='post', value=pad_id)
     X = embedding[X].reshape((X.shape[0], vec_dim * 64, 1))
     if shuffle:
         perm = np.random.permutation(X.shape[0])
