@@ -82,10 +82,11 @@ class SentiCNN(object):
 
 
 def make_data(X, y, embedding, vec_dim, binary, pad_id):
-    X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=64, padding='post', value=pad_id)
+    X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=64, padding='post', value=pad_id, shuffle=True)
     X = embedding[X].reshape((X.shape[0], vec_dim * 64, 1))
-    perm = np.random.permutation(X.shape[0])
-    X, y = X[perm], y[perm]
+    if shuffle:
+        perm = np.random.permutation(X.shape[0])
+        X, y = X[perm], y[perm]
     if binary:
         y = (y >= 2).astype(np.int32)
     return X, y
@@ -113,6 +114,10 @@ def main(args):
                          args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
+
+        train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle)
+        test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle)
+
         print_senti_words(source_dataset.test[0][:50], source_dataset.test[1][:50], 
                           model.predict(test_x[:50]), source_wordvec, model.predict_senti_word_ids(test_x[:50]))
         print_senti_words(source_dataset.train[0][:50], source_dataset.train[1][:50], 
