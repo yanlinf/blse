@@ -21,14 +21,13 @@ class AttenAverage(object):
         self.sess.run(tf.global_variables_initializer())
 
     def _build_graph(self):
-        self.keep_prob = tf.placeholder(tf.float32)
-        self.inputs = tf.placeholder(tf.float32, shape=(None, None, self.vec_dim))
+        self.inputs = tf.placeholder(tf.float32, shape=(None, 64, self.vec_dim))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
 
         W1 = tf.get_variable('W1', (self.vec_dim, 1), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
         b1 = tf.get_variable('b1', (), tf.float32, initializer=tf.zeros_initializer())
-        atten = self.inputs @ W + b  # shape (batch_size, 64)
-        atten_norm = tf.softmax(atten_score, axis=-1)
+        atten = tf.reshape(self.inputs, (-1, self.vec_dim)) @ W1 + b1  # shape (batch_size, 64)
+        atten_norm = tf.nn.softmax(tf.reshape(atten, (-1, 64)), axis=-1)
         self.atten_norm = atten_norm
 
         L1 = tf.expand_dims(atten_norm, axis=-1) * self.inputs  # shape (batch_size, 64, 300)
@@ -52,7 +51,7 @@ class AttenAverage(object):
                 xs = train_x[offset:offset + self.batch_size]
                 ys = train_y[offset:offset + self.batch_size]
                 _, loss_, pred_, = self.sess.run([self.optimizer, self.loss, self.pred], 
-                                                        {self.inputs: xs, self.labels: ys, self.keep_prob: self.dropout})
+                                                        {self.inputs: xs, self.labels: ys})
                 loss += loss_ * len(xs)
                 pred[offset:offset + self.batch_size] = pred_
             loss /= nsample
@@ -63,7 +62,7 @@ class AttenAverage(object):
                 logging.info('Test f1_macro: %.4f' % self.score(test_x, test_y))
 
     def predict(self, test_x):
-        pred = self.sess.run(self.pred, {self.inputs: test_x, self.keep_prob: 1.})
+        pred = self.sess.run(self.pred, {self.inputs: test_x})
         return pred
 
     def score(self, test_x, test_y, scorer='f1_macro'):
@@ -74,14 +73,15 @@ class AttenAverage(object):
 
     def predict_attention_scores(self, test_x):
         atten_ = self.sess.run(self.atten_norm, {self.inputs: test_x})
-        return res
+        return atten_
 
 
-def make_data(X, y, embedding, vec_dim, binary, pad_id):
+def make_data(X, y, embedding, vec_dim, binary, pad_id, shuffle=True):
     X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=64, padding='post', value=pad_id)
     X = embedding[X]  # shape (nsamples, 64, vec_dim)
-    perm = np.random.permutation(X.shape[0])
-    X, y = X[perm], y[perm]
+    if shuffle:
+        perm = np.random.permutation(X.shape[0])
+        X, y = X[perm], y[perm]
     if binary:
         y = (y >= 2).astype(np.int32)
     return X, y
@@ -104,10 +104,13 @@ def main(args):
     train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id)
     test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id)
     with tf.Session() as sess:
-        model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4),
-                         args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout)
+        model = AttenAverage(sess, args.vector_dim, (2 if args.binary else 4),
+                         args.learning_rate, args.batch_size, args.epochs)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
+        
+        train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
+        test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
         print_examples_with_attention(source_dataset.test[0][:50], source_dataset.test[1][:50], 
                           model.predict(test_x[:50]), source_wordvec, model.predict_attention_scores(test_x[:50]))
         print_examples_with_attention(source_dataset.train[0][:50], source_dataset.train[1][:50], 
