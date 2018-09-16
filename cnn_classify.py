@@ -92,36 +92,36 @@ def make_data(X, y, embedding, vec_dim, binary, pad_id, shuffle=True):
     return X, y
 
 
-def print_senti_words(X, y, pred, wordvec, senti_ids):
+def print_senti_words(X, y, pred, wordvecs, senti_ids):
     print('---------------------------------------------------------')
     for sent, label, pred_label, ids in zip(X, y, pred, senti_ids):
-        print(' '.join([wordvec.index2word(j) for j in sent]))
+        print(' '.join([wordvecs.index2word(j) for j in sent]))
         print('true label:', label, '   predicted label: ', pred_label)
         ids = [j for j in ids if j < len(sent)]
-        print('|'.join([wordvec.index2word(sent[j]) for j in ids]))
+        print('|'.join([wordvecs.index2word(sent[j]) for j in ids]))
         print('---------------------------------------------------------')
 
 
 def main(args):
     logging.info(str(args))
-    source_wordvec = utils.WordVecs(args.source_embedding, normalize=args.normalize)
-    source_pad_id = source_wordvec.add_word('<PAD>', np.zeros(300))
-    source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvec)
-    train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id)
-    test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id)
+    source_wordvecs = utils.WordVecs(args.source_embedding, normalize=args.normalize)
+    source_pad_id = source_wordvecs.add_word('<PAD>', np.zeros(300))
+    source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvecs)
+    train_x, train_y = make_data(*source_dataset.train, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id)
+    test_x, test_y = make_data(*source_dataset.test, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id)
     with tf.Session() as sess:
         model = SentiCNN(sess, args.vector_dim, (2 if args.binary else 4),
                          args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
 
-        train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
-        test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
+        train_x, train_y = make_data(*source_dataset.train, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
+        test_x, test_y = make_data(*source_dataset.test, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
 
         print_senti_words(source_dataset.test[0][:50], source_dataset.test[1][:50], 
-                          model.predict(test_x[:50]), source_wordvec, model.predict_senti_word_ids(test_x[:50]))
+                          model.predict(test_x[:50]), source_wordvecs, model.predict_senti_word_ids(test_x[:50]))
         print_senti_words(source_dataset.train[0][:50], source_dataset.train[1][:50], 
-                          model.predict(train_x[:50]), source_wordvec, model.predict_senti_word_ids(train_x[:50]))
+                          model.predict(train_x[:50]), source_wordvecs, model.predict_senti_word_ids(train_x[:50]))
 
 
 if __name__ == '__main__':

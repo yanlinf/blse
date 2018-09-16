@@ -186,22 +186,22 @@ def load_data(binary=False):
             y = (y >= 2).astype(np.int32)
         return X, y
 
-    source_wordvec = utils.WordVecs(args.source_embedding)
-    target_wordvec = utils.WordVecs(args.target_embedding)
+    source_wordvecs = utils.WordVecs(args.source_embedding)
+    target_wordvecs = utils.WordVecs(args.target_embedding)
 
     dict_obj = utils.BilingualDict(args.dictionary).filter(
-        lambda x: x[0] != '-').get_indexed_dictionary(source_wordvec, target_wordvec)
-    source_words = source_wordvec.embedding[dict_obj[:, 0]]
-    target_words = target_wordvec.embedding[dict_obj[:, 1]]
+        lambda x: x[0] != '-').get_indexed_dictionary(source_wordvecs, target_wordvecs)
+    source_words = source_wordvecs.embedding[dict_obj[:, 0]]
+    target_words = target_wordvecs.embedding[dict_obj[:, 1]]
 
-    source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvec)
-    target_dataset = utils.SentimentDataset(args.target_dataset).to_index(target_wordvec)
+    source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvecs)
+    target_dataset = utils.SentimentDataset(args.target_dataset).to_index(target_wordvecs)
 
-    train_x, train_y = lookup_and_shuffle(*source_dataset.train, source_wordvec.embedding, binary)
-    test_x, test_y = lookup_and_shuffle(*target_dataset.train, target_wordvec.embedding, binary)
-    dev_x, dev_y = lookup_and_shuffle(*target_dataset.test, target_wordvec.embedding, binary)
+    train_x, train_y = lookup_and_shuffle(*source_dataset.train, source_wordvecs.embedding, binary)
+    test_x, test_y = lookup_and_shuffle(*target_dataset.train, target_wordvecs.embedding, binary)
+    dev_x, dev_y = lookup_and_shuffle(*target_dataset.test, target_wordvecs.embedding, binary)
 
-    return source_wordvec, target_wordvec, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y
+    return source_wordvecs, target_wordvecs, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y
 
 
 # def evaluate(pred, true_y, binary=False):
@@ -215,7 +215,7 @@ def load_data(binary=False):
 
 def main(args):
     logging.info('fitting BLSE model with parameters: %s' % str(args))
-    source_wordvec, target_wordvec, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y = load_data(
+    source_wordvecs, target_wordvecs, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y = load_data(
         binary=args.binary)  # numpy array
     with tf.Session() as sess:
         model = BLSE(sess, args.save_path, args.vector_dim, args.alpha, args.learning_rate,
@@ -231,7 +231,7 @@ def main(args):
         logging.info('Test f1_macro: %.4f' % model.score(dev_x, dev_y))
 
         # pprint([' '.join([str(w) for w in line if w != '<PAD>'])
-        #         for line in source_wordvec.index2word(train_x[:30])])
+        #         for line in source_wordvecs.index2word(train_x[:30])])
         # print()
         # print(model.predict_source(train_x[:30]))
         # print()

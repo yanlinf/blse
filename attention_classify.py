@@ -87,34 +87,34 @@ def make_data(X, y, embedding, vec_dim, binary, pad_id, shuffle=True):
     return X, y
 
 
-def print_examples_with_attention(X, y, pred, wordvec, attention):
+def print_examples_with_attention(X, y, pred, wordvecs, attention):
     print('---------------------------------------------------------')
     for sent, label, pred_label, atten in zip(X, y, pred, attention):
         atten = atten[:len(sent)]
-        print([(wordvec.index2word(j), a) for j, a in zip(sent, atten)])
+        print([(wordvecs.index2word(j), a) for j, a in zip(sent, atten)])
         print('true label:', label, '   predicted label: ', pred_label)
         print('---------------------------------------------------------')
 
 
 def main(args):
     logging.info(str(args))
-    source_wordvec = utils.WordVecs(args.source_embedding, normalize=args.normalize)
-    source_pad_id = source_wordvec.add_word('<PAD>', np.zeros(args.vector_dim))
-    source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvec)
-    train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id)
-    test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id)
+    source_wordvecs = utils.WordVecs(args.source_embedding, normalize=args.normalize)
+    source_pad_id = source_wordvecs.add_word('<PAD>', np.zeros(args.vector_dim))
+    source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvecs)
+    train_x, train_y = make_data(*source_dataset.train, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id)
+    test_x, test_y = make_data(*source_dataset.test, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id)
     with tf.Session() as sess:
         model = AttenAverage(sess, args.vector_dim, (2 if args.binary else 4),
                          args.learning_rate, args.batch_size, args.epochs)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
         
-        train_x, train_y = make_data(*source_dataset.train, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
-        test_x, test_y = make_data(*source_dataset.test, source_wordvec.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
+        train_x, train_y = make_data(*source_dataset.train, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
+        test_x, test_y = make_data(*source_dataset.test, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
         print_examples_with_attention(source_dataset.test[0][:50], source_dataset.test[1][:50], 
-                          model.predict(test_x[:50]), source_wordvec, model.predict_attention_scores(test_x[:50]))
+                          model.predict(test_x[:50]), source_wordvecs, model.predict_attention_scores(test_x[:50]))
         print_examples_with_attention(source_dataset.train[0][:50], source_dataset.train[1][:50], 
-                          model.predict(train_x[:50]), source_wordvec, model.predict_attention_scores(train_x[:50]))
+                          model.predict(train_x[:50]), source_wordvecs, model.predict_attention_scores(train_x[:50]))
 
 
 if __name__ == '__main__':

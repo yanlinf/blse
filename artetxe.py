@@ -77,32 +77,32 @@ def main(args):
     logging.info(str(args))
 
     # load word embedding
-    source_wordvec = utils.WordVecs(
+    source_wordvecs = utils.WordVecs(
         args.source_embedding, normalize=args.normalize)
-    target_wordvec = utils.WordVecs(
+    target_wordvecs = utils.WordVecs(
         args.target_embedding, normalize=args.normalize)
 
     # load bilingual lexicon
     dict_obj = utils.BilingualDict(args.dictionary).filter(
-        lambda x: x[0] != '-').get_indexed_dictionary(source_wordvec, target_wordvec)
+        lambda x: x[0] != '-').get_indexed_dictionary(source_wordvecs, target_wordvecs)
 
     source_dataset = utils.SentimentDataset(
-        args.source_dataset).to_index(source_wordvec)
+        args.source_dataset).to_index(source_wordvecs)
     target_dataset = utils.SentimentDataset(
-        args.target_dataset).to_index(target_wordvec)
+        args.target_dataset).to_index(target_wordvecs)
 
     # create bilingual embedding
     if args.project_source:
-        proj_source_emb = np.matmul(source_wordvec.embedding, get_W_source(
-            source_wordvec.embedding, target_wordvec.embedding, dict_obj, args.orthogonal))
-        proj_target_emb = target_wordvec.embedding
+        proj_source_emb = np.matmul(source_wordvecs.embedding, get_W_source(
+            source_wordvecs.embedding, target_wordvecs.embedding, dict_obj, args.orthogonal))
+        proj_target_emb = target_wordvecs.embedding
     else:
-        proj_source_emb = source_wordvec.embedding
-        proj_target_emb = np.matmul(target_wordvec.embedding, get_W_target(
-            source_wordvec.embedding, target_wordvec.embedding, dict_obj, args.orthogonal))
+        proj_source_emb = source_wordvecs.embedding
+        proj_target_emb = np.matmul(target_wordvecs.embedding, get_W_target(
+            source_wordvecs.embedding, target_wordvecs.embedding, dict_obj, args.orthogonal))
 
     logging.info('projection loss before projection: %.2f' % cal_proj_loss(
-        source_wordvec.embedding, target_wordvec.embedding, dict_obj))
+        source_wordvecs.embedding, target_wordvecs.embedding, dict_obj))
     logging.info('projection loss after projection: %.2f' % cal_proj_loss(
         proj_source_emb, proj_target_emb, dict_obj))
 
