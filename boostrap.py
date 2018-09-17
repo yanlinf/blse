@@ -68,8 +68,8 @@ if __name__ == '__main__':
                         help='bilingual dictionary for learning bilingual mapping (default: ./lexicons/bingliu/en-es.txt)',
                         default='./lexicons/bingliu/en-es.txt')
     parser.add_argument('-gd', '--gold_dictionary',
-                        help='gold bilingual dictionary for evaluation(default: ./lexicons/bingliu/en-es.txt)',
-                        default='./lexicons/bingliu/en-es.txt')
+                        help='gold bilingual dictionary for evaluation(default: ./lexicons/apertium/en-es.txt)',
+                        default='./lexicons/apertium/en-es.txt')
     parser.add_argument('-e', '--epochs',
                         help='training epochs (default: 50)',
                         default=50,
