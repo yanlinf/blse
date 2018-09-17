@@ -5,7 +5,7 @@ import logging
 from utils import utils
 
 
-BATCH_SIZE = 50
+BATCH_SIZE = 500
 
 def main(args):
     logging.info(str(args))
@@ -18,6 +18,7 @@ def main(args):
         source_wordvecs, target_wordvecs)
 
     vocab_size = source_wordvecs.embedding.shape[0]
+    logging.info('vocab_size: %d' % vocab_size)
     curr_dict = init_dict
     for epoch in range(args.epochs):
         X_source = source_wordvecs.embedding[curr_dict[:, 0]]
@@ -35,9 +36,10 @@ def main(args):
 
         
         curr_dict = np.zeros((vocab_size, 2))
-        curr_dict[: 0] = np.arange(vocab_size)
+        curr_dict[:, 0] = np.arange(vocab_size)
         for i in range(0, vocab_size, BATCH_SIZE):
-            similarities = np.dot(source_emb[i:i + BATCH_SIZE], target_emb)  # shape (BATCH_SIZE, TARGET_VOCAB_SIZE)
+            print(i)
+            similarities = np.dot(source_emb[i:i + BATCH_SIZE], target_emb.T)  # shape (BATCH_SIZE, TARGET_VOCAB_SIZE)
             closest = np.argmax(similarities, axis=1)
             curr_dict[i:i + BATCH_SIZE, 1] = closest
 
