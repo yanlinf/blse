@@ -35,7 +35,7 @@ def main(args):
         target_emb = np.dot(target_wordvecs.embedding, W_target)
 
         
-        curr_dict = np.zeros((vocab_size, 2))
+        curr_dict = np.zeros((vocab_size, 2), dtype=np.int32)
         curr_dict[:, 0] = np.arange(vocab_size)
         for i in range(0, vocab_size, BATCH_SIZE):
             print(i)
