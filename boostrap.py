@@ -116,7 +116,7 @@ if __name__ == '__main__':
                         help='use cuda to accelerate',
                         action='store_true')
 
-    dict_group = parser.add_mutually_exclusive_group(required=True)
+    dict_group = parser.add_mutually_exclusive_group()
     dict_group.add_argument('-d', '--dictionary',
                             help='bilingual dictionary for learning bilingual mapping (default: ./lexicons/bingliu/en-es.txt)',
                             default='./lexicons/bingliu/en-es.txt')
