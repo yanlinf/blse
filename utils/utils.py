@@ -32,6 +32,7 @@ class WordVecs(object):
         self.encoding = encoding
         self.vocab_size, self.vec_dim, self._matrix, self._w2idx, self._idx2w = self._read_vecs(
             file)
+        self.vocab = set(self._w2idx.keys())
         if normalize:
             self.mean_center().normalize()
 
