@@ -84,7 +84,6 @@ if __name__ == '__main__':
     parser.add_argument('-te', '--target_embedding',
                         help='monolingual word embedding of the target language (default: ./emb/es.bin)',
                         default='./emb/es.bin')
-    
     parser.add_argument('-gd', '--gold_dictionary',
                         help='gold bilingual dictionary for evaluation(default: ./lexicons/apertium/en-es.txt)',
                         default='./lexicons/apertium/en-es.txt')
@@ -113,6 +112,9 @@ if __name__ == '__main__':
     parser.add_argument('--save_path',
                         help='file to save the learned W_target',
                         default='./checkpoints/boostrap.txt')
+    parser.add_argument('--cuda',
+                        help='use cuda to accelerate',
+                        action='store_true')
 
     dict_group = parser.add_mutually_exclusive_group(required=True)
     dict_group.add_argument('-d', '--dictionary',
