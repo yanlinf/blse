@@ -23,8 +23,8 @@ def main(args):
         xp = np
     
     # prepare initial word vectors
-    src_wv = utils.WordVecs(args.src_embedding).mean_center().normalize()
-    trg_wv = utils.WordVecs(args.trg_embedding).mean_center().normalize()
+    src_wv = utils.WordVecs(args.source_embedding).mean_center().normalize()
+    trg_wv = utils.WordVecs(args.target_embedding).mean_center().normalize()
 
     # prepare gold bilingual dict
     gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
@@ -55,8 +55,8 @@ def main(args):
         X_src = src_emb[curr_dict[:, 0]]
         X_trg = trg_original_emb[curr_dict[:, 1]]
         
-        if args.W_trg != '' and epoch == 0:
-            with open(args.W_trg, 'rb') as fin:
+        if args.W_target != '' and epoch == 0:
+            with open(args.W_target, 'rb') as fin:
                 W_trg = pickle.load(fin)
         else:
             u, s, vt = xp.linalg.svd(xp.dot(X_src.T, X_trg))
