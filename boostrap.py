@@ -23,45 +23,45 @@ def main(args):
         xp = np
     
     # prepare initial word vectors
-    source_wordvecs = utils.WordVecs(args.source_embedding).mean_center().normalize()
-    target_wordvecs = utils.WordVecs(args.target_embedding).mean_center().normalize()
+    src_wv = utils.WordVecs(args.src_embedding).mean_center().normalize()
+    trg_wv = utils.WordVecs(args.trg_embedding).mean_center().normalize()
 
     # prepare gold bilingual dict
-    gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(source_wordvecs, target_wordvecs), dtype=xp.int32)
+    gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     
     # prepare initial bilingual dict
     if args.init_num:
         num_regex = re.compile('^[0-9]+$')
-        src_nums = {w for w in source_wordvecs.vocab if num_regex.match(w) is not None}
-        trg_nums = {w for w in target_wordvecs.vocab if num_regex.match(w) is not None}
+        src_nums = {w for w in src_wv.vocab if num_regex.match(w) is not None}
+        trg_nums = {w for w in trg_wv.vocab if num_regex.match(w) is not None}
         print(src_nums)
         print(trg_nums)
         common = src_nums & trg_nums
-        init_dict = xp.array([[source_wordvecs.word2index(w), target_wordvecs.word2index(w)] for w in common], dtype=xp.int32)
+        init_dict = xp.array([[src_wv.word2index(w), trg_wv.word2index(w)] for w in common], dtype=xp.int32)
     else:
-        init_dict = xp.array(utils.BilingualDict(args.dictionary).get_indexed_dictionary(source_wordvecs, target_wordvecs), dtype=xp.int32)
+        init_dict = xp.array(utils.BilingualDict(args.dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     print('init_dict_size: %d' % init_dict.shape[0])
 
-    vocab_size = source_wordvecs.embedding.shape[0]
+    vocab_size = src_wv.embedding.shape[0]
     print('vocab_size: %d' % vocab_size)
     curr_dict = init_dict
-    cos_sims = xp.empty((args.batch_size, target_wordvecs.embedding.shape[0]), dtype=xp.float32)
-    source_emb = xp.array(source_wordvecs.embedding, dtype=xp.float32)
-    target_original_emb = xp.array(target_wordvecs.embedding, dtype=xp.float32)
-    target_emb = xp.empty((target_wordvecs.embedding.shape[0], args.vector_dim), dtype=xp.float32)
+    cos_sims = xp.empty((args.batch_size, trg_wv.embedding.shape[0]), dtype=xp.float32)
+    src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
+    trg_original_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
+    trg_emb = xp.empty((trg_wv.embedding.shape[0], args.vector_dim), dtype=xp.float32)
 
     # self learning
     for epoch in range(args.epochs):
-        X_source = source_emb[curr_dict[:, 0]]
-        X_target = target_original_emb[curr_dict[:, 1]]
+        X_src = src_emb[curr_dict[:, 0]]
+        X_trg = trg_original_emb[curr_dict[:, 1]]
         
-        if args.W_target != '' and epoch == 0:
-            with open(args.W_target, 'rb') as fin:
-                W_target = pickle.load(fin)
+        if args.W_trg != '' and epoch == 0:
+            with open(args.W_trg, 'rb') as fin:
+                W_trg = pickle.load(fin)
         else:
-            u, s, vt = xp.linalg.svd(xp.dot(X_source.T, X_target))
-            W_target = xp.dot(vt.T, u.T)
-        xp.dot(target_original_emb, W_target, out=target_emb)
+            u, s, vt = xp.linalg.svd(xp.dot(X_src.T, X_trg))
+            W_trg = xp.dot(vt.T, u.T)
+        xp.dot(trg_original_emb, W_trg, out=trg_emb)
 
         
         curr_dict = xp.zeros((vocab_size, 2), dtype=xp.int32)
@@ -69,14 +69,14 @@ def main(args):
         for i in range(0, vocab_size, args.batch_size):
             print(i)
             j = i + args.batch_size
-            xp.dot(source_emb[i:j], target_emb.T, out=cos_sims)  # shape (BATCH_SIZE, TARGET_VOCAB_SIZE)
+            xp.dot(src_emb[i:j], trg_emb.T, out=cos_sims)  # shape (BATCH_SIZE, TARGET_VOCAB_SIZE)
             xp.argmax(cos_sims, axis=1, out=curr_dict[i:j, 1])
 
         accuracy = xp.mean((curr_dict[gold_dict[:, 0]][:, 1] == gold_dict[:, 1]).astype(xp.int32))
         logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
 
     with open(args.save_path, 'wb') as fout:
-        pickle.dump(W_target, fout)
+        pickle.dump(W_trg, fout)
 
 
 if __name__ == '__main__':
