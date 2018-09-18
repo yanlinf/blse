@@ -17,34 +17,43 @@ def main(args):
     if args.cuda:
         if cupy is None:
             print('Install cupy for cuda support')
-        sys.exit(-1)
+            sys.exit(-1)
         xp = cupy
     else:
         xp = np
-
+    
+    # prepare initial word vectors
     source_wordvecs = utils.WordVecs(args.source_embedding).mean_center().normalize()
     target_wordvecs = utils.WordVecs(args.target_embedding).mean_center().normalize()
-    gold_dict = utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(source_wordvecs, target_wordvecs)
+
+    # prepare gold bilingual dict
+    gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(source_wordvecs, target_wordvecs), dtype=xp.int32)
+    
+    # prepare initial bilingual dict
     if args.init_num:
-        num_regex = re.compile('$[0-9]+^')
+        num_regex = re.compile('^[0-9]+$')
         src_nums = {w for w in source_wordvecs.vocab if num_regex.match(w) is not None}
         trg_nums = {w for w in target_wordvecs.vocab if num_regex.match(w) is not None}
+        print(src_nums)
+        print(trg_nums)
         common = src_nums & trg_nums
         init_dict = xp.array([[source_wordvecs.word2index(w), target_wordvecs.word2index(w)] for w in common], dtype=xp.int32)
     else:
-        init_dict = utils.BilingualDict(args.dictionary).get_indexed_dictionary(source_wordvecs, target_wordvecs)
+        init_dict = xp.array(utils.BilingualDict(args.dictionary).get_indexed_dictionary(source_wordvecs, target_wordvecs), dtype=xp.int32)
     print('init_dict_size: %d' % init_dict.shape[0])
 
     vocab_size = source_wordvecs.embedding.shape[0]
     print('vocab_size: %d' % vocab_size)
     curr_dict = init_dict
-    cos_sims = xp.empty((args.batch_size, target_emb.shape[0]))
-    source_emb = source_wordvecs.embedding
-    target_emb = xp.empty((target_emb.shape[0], args.vector_dim))
+    cos_sims = xp.empty((args.batch_size, target_wordvecs.embedding.shape[0]), dtype=xp.float32)
+    source_emb = xp.array(source_wordvecs.embedding, dtype=xp.float32)
+    target_original_emb = xp.array(target_wordvecs.embedding, dtype=xp.float32)
+    target_emb = xp.empty((target_wordvecs.embedding.shape[0], args.vector_dim), dtype=xp.float32)
 
+    # self learning
     for epoch in range(args.epochs):
-        X_source = source_wordvecs.embedding[curr_dict[:, 0]]
-        X_target = target_wordvecs.embedding[curr_dict[:, 1]]
+        X_source = source_emb[curr_dict[:, 0]]
+        X_target = target_original_emb[curr_dict[:, 1]]
         
         if args.W_target != '' and epoch == 0:
             with open(args.W_target, 'rb') as fin:
@@ -52,7 +61,7 @@ def main(args):
         else:
             u, s, vt = xp.linalg.svd(xp.dot(X_source.T, X_target))
             W_target = xp.dot(vt.T, u.T)
-        xp.dot(target_wordvecs.embedding, W_target, out=target_emb)
+        xp.dot(target_original_emb, W_target, out=target_emb)
 
         
         curr_dict = xp.zeros((vocab_size, 2), dtype=xp.int32)
@@ -100,8 +109,8 @@ if __name__ == '__main__':
                         type=str,
                         default='')
     parser.add_argument('-bs', '--batch_size',
-                        help='training batch size (default: 10000)',
-                        default=10000,
+                        help='training batch size (default: 5000)',
+                        default=5000,
                         type=int)
     parser.add_argument('--debug',
                         help='print debug info',
@@ -118,8 +127,8 @@ if __name__ == '__main__':
 
     dict_group = parser.add_mutually_exclusive_group()
     dict_group.add_argument('-d', '--dictionary',
-                            help='bilingual dictionary for learning bilingual mapping (default: ./lexicons/bingliu/en-es.txt)',
-                            default='./lexicons/bingliu/en-es.txt')
+                            help='bilingual dictionary for learning bilingual mapping (default: ./init_dict/init100.txt)',
+                            default='./init_dict/init100.txt')
     dict_group.add_argument('--init_num', 
                             action='store_true',
                             help='use numerals as initial dictionary')
