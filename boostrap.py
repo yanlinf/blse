@@ -1,4 +1,3 @@
-import numpy as np
 import argparse
 import pickle
 import logging
@@ -6,21 +5,20 @@ import sys
 import re
 from utils import utils
 
-try:
-    import cupy
-except ImportError:
-    cupy = None
 
 def main(args):
     logging.info(str(args))
 
     if args.cuda:
-        if cupy is None:
+        try:
+            import cupy
+        except ImportError:
             print('Install cupy for cuda support')
             sys.exit(-1)
         xp = cupy
     else:
-        xp = np
+        import numpy
+        xp = numpy
     
     # prepare initial word vectors
     src_wv = utils.WordVecs(args.source_embedding).mean_center().normalize()
@@ -34,25 +32,25 @@ def main(args):
         num_regex = re.compile('^[0-9]+$')
         src_nums = {w for w in src_wv.vocab if num_regex.match(w) is not None}
         trg_nums = {w for w in trg_wv.vocab if num_regex.match(w) is not None}
-        print(src_nums)
-        print(trg_nums)
         common = src_nums & trg_nums
         init_dict = xp.array([[src_wv.word2index(w), trg_wv.word2index(w)] for w in common], dtype=xp.int32)
     else:
         init_dict = xp.array(utils.BilingualDict(args.dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
-    print('init_dict_size: %d' % init_dict.shape[0])
-
+    
+    # allocate memory for large matrices
     vocab_size = src_wv.embedding.shape[0]
-    print('vocab_size: %d' % vocab_size)
     curr_dict = init_dict
     cos_sims = xp.empty((args.batch_size, trg_wv.embedding.shape[0]), dtype=xp.float32)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
     trg_original_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
     trg_emb = xp.empty((trg_wv.embedding.shape[0], args.vector_dim), dtype=xp.float32)
+    print('init_dict_size: %d' % init_dict.shape[0])
+    print('vocab_size: %d' % vocab_size)
+
 
     # self learning
     for epoch in range(args.epochs):
-        X_src = src_emb[curr_dict[:, 0]]
+        X_src = src_emb[curr_dict[:, 0]] if epoch == 0 else src_emb
         X_trg = trg_original_emb[curr_dict[:, 1]]
         
         if args.W_target != '' and epoch == 0:
@@ -75,6 +73,7 @@ def main(args):
         accuracy = xp.mean((curr_dict[gold_dict[:, 0]][:, 1] == gold_dict[:, 1]).astype(xp.int32))
         logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
 
+    # save W_trg
     with open(args.save_path, 'wb') as fout:
         pickle.dump(W_trg, fout)
 
