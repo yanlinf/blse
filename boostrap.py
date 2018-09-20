@@ -27,6 +27,8 @@ def main(args):
     # prepare gold bilingual dict
     gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
 
+    log_file = open(args.log, 'w', encoding='utf-8')
+
     # prepare initial bilingual dict
     if args.init_num:
         num_regex = re.compile('^[0-9]+$')
@@ -50,6 +52,7 @@ def main(args):
     print('init_dict_size: %d' % init_dict.shape[0])
     print('max_dict_size: %d' % dict_size)
     print('gold_dict_size: %d' % gold_dict.shape[0])
+    print('------------------------------------------------')
 
     # self learning
     for epoch in range(args.epochs):
@@ -81,6 +84,9 @@ def main(args):
                 xp.argmax(sims[:j-i], axis=1, out=val_trg_indices[i:j])
             accuracy = xp.mean((val_trg_indices == gold_dict[:,1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
+            log_file.write('%d,%.4f\n' % (epoch, accuracy))
+
+    log_file.close()
 
     # save W_trg
     with open(args.save_path, 'wb') as fout:
@@ -103,6 +109,7 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_const', dest='loglevel', default=logging.INFO, const=logging.DEBUG, help='print debug info')
     parser.add_argument('--save_path', default='./checkpoints/wtarget.bin', help='file to save the learned W_target')
     parser.add_argument('--cuda', action='store_true', help='use cuda to accelerate')
+    parser.add_argument('--log', default='./log/init100.csv', type=str, help='file to print log')
 
     init_dict_group = parser.add_mutually_exclusive_group()
     init_dict_group.add_argument('-d', '--dictionary', default='./init_dict/init100.txt', help='bilingual dictionary for learning bilingual mapping (default: ./init_dict/init100.txt)')
