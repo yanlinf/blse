@@ -3,11 +3,32 @@ import pickle
 import logging
 import sys
 import re
+import matplotlib.pyplot as plt
 from utils import utils
+
+
+def plot(files, labels):
+    fig, ax = plt.subplots()
+    acc = []
+    for file in files:
+        with open(file, 'r', encoding='utf-8') as fin:
+            acc.append([float(line.split(',')[1]) for line in fin])
+    for y, l in zip(acc, labels):
+        ax.plot(range(1, 21), y, label=l)
+    ax.legend(loc='lower right')
+    ax.set_xlim(1, 20)
+    ax.set_xlabel('iterations')
+    ax.set_ylabel('accuracy')
 
 
 def main(args):
     logging.info(str(args))
+
+    if args.plot:
+        labels = (25, 50, 100, 200, 500, 1000, 2000, 5000)
+        plot(['log/init%d.csv' % t for t in labels], labels)
+        plt.show()
+        sys.exit(0)
 
     if args.cuda:
         try:
@@ -72,17 +93,17 @@ def main(args):
         for i in range(0, dict_size, args.batch_size):
             print('processed %d entries' % i)
             j = min(dict_size, i + args.batch_size)
-            xp.dot(src_emb[i:j], trg_emb.T, out=sims[:j-i])  # shape (BATCH_SIZE, TARGET_VOCAB_SIZE)
-            xp.argmax(sims[:j-i], axis=1, out=curr_dict[i:j, 1])
+            xp.dot(src_emb[i:j], trg_emb.T, out=sims[:j - i])  # shape (BATCH_SIZE, TARGET_VOCAB_SIZE)
+            xp.argmax(sims[:j - i], axis=1, out=curr_dict[i:j, 1])
 
         # valiadation
         if not args.no_valiadation or epoch == (args.epochs - 1):
             val_trg_indices = xp.zeros(gold_dict.shape[0], dtype=xp.int32)
             for i in range(0, gold_dict.shape[0], args.batch_size):
                 j = min(gold_dict.shape[0], i + args.batch_size)
-                xp.dot(src_emb[gold_dict[i:j,0]], trg_emb.T, out=sims[:j-i])
-                xp.argmax(sims[:j-i], axis=1, out=val_trg_indices[i:j])
-            accuracy = xp.mean((val_trg_indices == gold_dict[:,1]).astype(xp.int32))
+                xp.dot(src_emb[gold_dict[i:j, 0]], trg_emb.T, out=sims[:j - i])
+                xp.argmax(sims[:j - i], axis=1, out=val_trg_indices[i:j])
+            accuracy = xp.mean((val_trg_indices == gold_dict[:, 1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
             log_file.write('%d,%.4f\n' % (epoch, accuracy))
 
@@ -110,6 +131,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_path', default='./checkpoints/wtarget.bin', help='file to save the learned W_target')
     parser.add_argument('--cuda', action='store_true', help='use cuda to accelerate')
     parser.add_argument('--log', default='./log/init100.csv', type=str, help='file to print log')
+    parser.add_argument('--plot', action='store_true', help='plot results')
 
     init_dict_group = parser.add_mutually_exclusive_group()
     init_dict_group.add_argument('-d', '--dictionary', default='./init_dict/init100.txt', help='bilingual dictionary for learning bilingual mapping (default: ./init_dict/init100.txt)')
