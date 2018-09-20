@@ -66,17 +66,18 @@ def main(args):
         curr_dict = xp.zeros((dict_size, 2), dtype=xp.int32)
         curr_dict[:, 0] = xp.arange(dict_size)
         for i in range(0, dict_size, args.batch_size):
+            print('processed %d entries' % i)
             j = min(dict_size, i + args.batch_size)
-            xp.dot(src_emb[i:j], trg_emb.T, out=sims)  # shape (BATCH_SIZE, TARGET_VOCAB_SIZE)
-            xp.argmax(sims, axis=1, out=curr_dict[i:j, 1])
+            xp.dot(src_emb[i:j], trg_emb.T, out=sims[:j-i])  # shape (BATCH_SIZE, TARGET_VOCAB_SIZE)
+            xp.argmax(sims[:j-i], axis=1, out=curr_dict[i:j, 1])
 
         # valiadation
         if not args.no_valiadation:
             val_trg_indices = xp.zeros(gold_dict.shape[0], dtype=xp.int32)
             for i in range(0, gold_dict.shape[0], args.batch_size):
                 j = min(gold_dict.shape[0], i + args.batch_size)
-                xp.dot(src_emb[gold_dict[i:j]], trg_emb.T, out=sims)
-                xp.argmax(sims, axis=1, out=val_trg_indices[i:j])
+                xp.dot(src_emb[gold_dict[i:j]], trg_emb.T, out=sims[:j-i])
+                xp.argmax(sims[:j-i], axis=1, out=val_trg_indices[i:j])
             accuracy = xp.mean((val_trg_indices == gold_dict[:, 1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
 
