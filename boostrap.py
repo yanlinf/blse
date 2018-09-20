@@ -49,6 +49,7 @@ def main(args):
     print('trg_emb_size: %d' % trg_wv.embedding.shape[0])
     print('init_dict_size: %d' % init_dict.shape[0])
     print('max_dict_size: %d' % dict_size)
+    print('gold_dict_size: %d' % gold_dict.shape[0])
 
     # self learning
     for epoch in range(args.epochs):
@@ -72,13 +73,13 @@ def main(args):
             xp.argmax(sims[:j-i], axis=1, out=curr_dict[i:j, 1])
 
         # valiadation
-        if not args.no_valiadation:
+        if not args.no_valiadation or epoch == (args.epochs - 1):
             val_trg_indices = xp.zeros(gold_dict.shape[0], dtype=xp.int32)
             for i in range(0, gold_dict.shape[0], args.batch_size):
                 j = min(gold_dict.shape[0], i + args.batch_size)
-                xp.dot(src_emb[gold_dict[i:j]], trg_emb.T, out=sims[:j-i])
+                xp.dot(src_emb[gold_dict[i:j,0]], trg_emb.T, out=sims[:j-i])
                 xp.argmax(sims[:j-i], axis=1, out=val_trg_indices[i:j])
-            accuracy = xp.mean((val_trg_indices == gold_dict[:, 1]).astype(xp.int32))
+            accuracy = xp.mean((val_trg_indices == gold_dict[:,1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
 
     # save W_trg
@@ -93,14 +94,14 @@ if __name__ == '__main__':
     parser.add_argument('-se', '--source_embedding', default='./emb/en.bin', help='monolingual word embedding of the source language (default: ./emb/en.bin)')
     parser.add_argument('-te', '--target_embedding', default='./emb/es.bin', help='monolingual word embedding of the target language (default: ./emb/es.bin)')
     parser.add_argument('-gd', '--gold_dictionary', default='./lexicons/apertium/en-es.txt', help='gold bilingual dictionary for evaluation(default: ./lexicons/apertium/en-es.txt)')
-    parser.add_argument('-e', '--epochs', default=50, type=int, help='training epochs (default: 50)')
+    parser.add_argument('-e', '--epochs', default=20, type=int, help='training epochs (default: 20)')
     parser.add_argument('-vd', '--vector_dim', default=300, type=int, help='dimension of each word vector (default: 300)')
     parser.add_argument('-W', '--W_target', type=str, default='', help='restore W_target from a file')
     parser.add_argument('-bs', '--batch_size', default=1000, type=int, help='training batch size (default: 1000)')
     parser.add_argument('-vc', '--vocabulary_cutoff', default=20000, type=int, help='restrict the vocabulary to the top k entries')
     parser.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
     parser.add_argument('--debug', action='store_const', dest='loglevel', default=logging.INFO, const=logging.DEBUG, help='print debug info')
-    parser.add_argument('--save_path', default='./checkpoints/boostrap.txt', help='file to save the learned W_target')
+    parser.add_argument('--save_path', default='./checkpoints/wtarget.bin', help='file to save the learned W_target')
     parser.add_argument('--cuda', action='store_true', help='use cuda to accelerate')
 
     init_dict_group = parser.add_mutually_exclusive_group()
