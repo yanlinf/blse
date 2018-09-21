@@ -63,6 +63,7 @@ def main(args):
     # allocate memory for large matrices
     dict_size = src_wv.embedding.shape[0] if args.vocabulary_cutoff <= 0 else min(src_wv.embedding.shape[0], args.vocabulary_cutoff)
     trg_size = trg_wv.embedding.shape[0]
+    trg_cutoff_size = min(trg_size, args.vocabulary_cutoff) if args.target_cutoff else trg_size
     curr_dict = init_dict
     sims = xp.empty((args.batch_size, trg_size), dtype=xp.float32)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
@@ -93,8 +94,9 @@ def main(args):
         for i in range(0, dict_size, args.batch_size):
             print('processed %d entries' % i)
             j = min(dict_size, i + args.batch_size)
-            xp.dot(src_emb[i:j], trg_emb.T, out=sims[:j - i])  # shape (BATCH_SIZE, TARGET_VOCAB_SIZE)
-            xp.argmax(sims[:j - i], axis=1, out=curr_dict[i:j, 1])
+            xp.dot(src_emb[i:j], trg_emb[:trg_cutoff_size].T, out=sims[:j-i,:trg_cutoff_size])
+            xp.argmax(sims[:j-i,:trg_cutoff_size], axis=1, out=curr_dict[i:j,1])
+            
 
         # valiadation
         if not args.no_valiadation or epoch == (args.epochs - 1):
@@ -126,6 +128,7 @@ if __name__ == '__main__':
     parser.add_argument('-W', '--W_target', type=str, default='', help='restore W_target from a file')
     parser.add_argument('-bs', '--batch_size', default=1000, type=int, help='training batch size (default: 1000)')
     parser.add_argument('-vc', '--vocabulary_cutoff', default=20000, type=int, help='restrict the vocabulary to the top k entries')
+    parser.add_argument('-tc', '--target_cutoff', action='store_true', help='target vocab cutoff during training')
     parser.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
     parser.add_argument('--debug', action='store_const', dest='loglevel', default=logging.INFO, const=logging.DEBUG, help='print debug info')
     parser.add_argument('--save_path', default='./checkpoints/wtarget.bin', help='file to save the learned W_target')
