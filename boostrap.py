@@ -123,7 +123,7 @@ if __name__ == '__main__':
     parser.add_argument('-se', '--source_embedding', default='./emb/en.bin', help='monolingual word embedding of the source language (default: ./emb/en.bin)')
     parser.add_argument('-te', '--target_embedding', default='./emb/es.bin', help='monolingual word embedding of the target language (default: ./emb/es.bin)')
     parser.add_argument('-gd', '--gold_dictionary', default='./lexicons/apertium/en-es.txt', help='gold bilingual dictionary for evaluation(default: ./lexicons/apertium/en-es.txt)')
-    parser.add_argument('-e', '--epochs', default=20, type=int, help='training epochs (default: 20)')
+    parser.add_argument('-e', '--epochs', default=50, type=int, help='training epochs (default: 50)')
     parser.add_argument('-vd', '--vector_dim', default=300, type=int, help='dimension of each word vector (default: 300)')
     parser.add_argument('-W', '--W_target', type=str, default='', help='restore W_target from a file')
     parser.add_argument('-bs', '--batch_size', default=1000, type=int, help='training batch size (default: 1000)')
