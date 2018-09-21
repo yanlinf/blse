@@ -65,7 +65,8 @@ def main(args):
     trg_size = trg_wv.embedding.shape[0]
     trg_cutoff_size = min(trg_size, args.vocabulary_cutoff) if args.target_cutoff else trg_size
     curr_dict = init_dict
-    sims = xp.empty((args.batch_size, trg_size), dtype=xp.float32)
+    sims = xp.empty((args.batch_size, trg_cutoff_size), dtype=xp.float32)
+    sims_val = xp.empty((args.batch_size, trg_size), dtype=xp.float32)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
     trg_original_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
     trg_emb = xp.empty((trg_wv.embedding.shape[0], args.vector_dim), dtype=xp.float32)
@@ -94,8 +95,8 @@ def main(args):
         for i in range(0, dict_size, args.batch_size):
             print('processed %d entries' % i)
             j = min(dict_size, i + args.batch_size)
-            xp.dot(src_emb[i:j], trg_emb[:trg_cutoff_size].T, out=sims[:j-i,:trg_cutoff_size])
-            xp.argmax(sims[:j-i,:trg_cutoff_size], axis=1, out=curr_dict[i:j,1])
+            xp.dot(src_emb[i:j], trg_emb[:trg_cutoff_size].T, out=sims[:j-i])
+            xp.argmax(sims[:j-i], axis=1, out=curr_dict[i:j,1])
             
 
         # valiadation
@@ -103,8 +104,8 @@ def main(args):
             val_trg_indices = xp.zeros(gold_dict.shape[0], dtype=xp.int32)
             for i in range(0, gold_dict.shape[0], args.batch_size):
                 j = min(gold_dict.shape[0], i + args.batch_size)
-                xp.dot(src_emb[gold_dict[i:j, 0]], trg_emb.T, out=sims[:j - i])
-                xp.argmax(sims[:j - i], axis=1, out=val_trg_indices[i:j])
+                xp.dot(src_emb[gold_dict[i:j, 0]], trg_emb.T, out=sims_val[:j-i])
+                xp.argmax(sims_val[:j-i], axis=1, out=val_trg_indices[i:j])
             accuracy = xp.mean((val_trg_indices == gold_dict[:, 1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
             log_file.write('%d,%.4f\n' % (epoch, accuracy))
