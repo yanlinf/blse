@@ -7,10 +7,6 @@ import logging
 
 
 class BiSentiCNN(object):
-    """
-    CNN for sentiment classification.
-    """
-
     def __init__(self, sess, vec_dim, nclasses, src_lr, trg_lr, src_bs,
                  trg_bs, src_epochs, trg_epochs, num_filters, dropout):
         self.sess = sess
@@ -47,7 +43,7 @@ class BiSentiCNN(object):
             with tf.variable_scope('project', reuse=tf.AUTO_REUSE):
                 U = tf.get_variable('U', (self.vec_dim, self.vec_dim), tf.float32, initializer=tf.constant_initializer(np.identity(self.vec_dim)))
                 self.U = U
-                return tf.reshape((tf.reshape(inputs, (-1, self.vec_dim)) @ U), (-1, 64 * self.vec_dim))
+                return tf.reshape((tf.reshape(inputs, (-1, self.vec_dim)) @ U), (-1, 64 * self.vec_dim, 1))
 
         self.keep_prob = tf.placeholder(tf.float32)
         self.src_x = tf.placeholder(tf.float32, shape=(None, None, 1))
@@ -61,8 +57,8 @@ class BiSentiCNN(object):
         trg_loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.trg_y, self.nclasses), trg_logits)
         src_pred = tf.argmax(src_logits, axis=1)
         trg_pred = tf.argmax(trg_logits, axis=1)
-        src_op = tf.train.AdamOptimizer(self.src_lr).minimize(self.src_loss)
-        trg_op = tf.train.AdamOptimizer(self.trg_lr).minimize(self.trg_loss, var_list=self.U)
+        src_op = tf.train.AdamOptimizer(self.src_lr).minimize(src_loss)
+        trg_op = tf.train.AdamOptimizer(self.trg_lr).minimize(trg_loss, var_list=self.U)
 
         self.src_loss = src_loss
         self.trg_loss = trg_loss
@@ -77,16 +73,16 @@ class BiSentiCNN(object):
         for epoch in range(self.src_epochs):
             src_loss = 0.
             src_pred = np.zeros(nsample)
-            for i in range(0, nsample, self.batch_size):
-                j = min(nsample, i + self.batch_size)
+            for i in range(0, nsample, self.src_bs):
+                j = min(nsample, i + self.src_bs)
                 feed_dict = {
                     self.src_x: src_x[i:j],
                     self.src_y: src_y[i:j],
                     self.keep_prob: self.dropout,
                 }
                 _, src_loss_, src_pred_ = self.sess.run([self.src_op, self.src_loss, self.src_pred], feed_dict)
-                src_loss += loss_ * (j - i)
-                src_pred[i:j] = pred_
+                src_loss += src_loss_ * (j - i)
+                src_pred[i:j] = src_pred_
             src_loss /= nsample
             fscore = f1_score(src_y, src_pred, average='macro')
             logging.info('epoch: %d  f1_macro: %.4f  loss: %.6f' % (epoch, fscore, src_loss))
@@ -99,16 +95,16 @@ class BiSentiCNN(object):
         for epoch in range(self.trg_epochs):
             trg_loss = 0.
             trg_pred = np.zeros(nsample)
-            for i in range(0, nsample, self.batch_size):
-                j = min(nsample, i + self.batch_size)
+            for i in range(0, nsample, self.trg_bs):
+                j = min(nsample, i + self.trg_bs)
                 feed_dict = {
                     self.trg_x: trg_x[i:j],
                     self.trg_y: trg_y[i:j],
                     self.keep_prob: 1.,
                 }
                 _, trg_loss_, trg_pred_ = self.sess.run([self.trg_op, self.trg_loss, self.trg_pred], feed_dict)
-                trg_loss += loss_ * (j - i)
-                trg_pred[i:j] = pred_
+                trg_loss += trg_loss_ * (j - i)
+                trg_pred[i:j] = trg_pred_
             trg_loss /= nsample
             fscore = f1_score(trg_y, trg_pred, average='macro')
             logging.info('epoch: %d  f1_macro: %.4f  loss: %.6f' % (epoch, fscore, trg_loss))
@@ -190,7 +186,7 @@ if __name__ == '__main__':
     parser.add_argument('-vd', '--vector_dim', default=300, type=int, help='dimension of each word vector (default: 300)')
     parser.add_argument('-gd', '--gold_dictionary', default='./lexicons/apertium/en-es.txt', help='gold bilingual dictionary for evaluation')
     parser.add_argument('--normalize', action='store_true', help='mean center and normalize word vectors')
-    parser.add_argument('--save_path', type=str, help='file to save the trained parameters')
+    parser.add_argument('--save_path', type=str, default='./checkpoints/bicnn.ckpt', help='file to save the trained parameters')
     parser.add_argument('--debug', action='store_const', dest='loglevel', default=logging.INFO, const=logging.DEBUG, help='print debug info')
 
     args = parser.parse_args()
