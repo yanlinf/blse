@@ -56,7 +56,7 @@ class BiSentiCNN(object):
         self.trg_y = tf.placeholder(tf.int32, shape=(None,))
 
         src_logits = softmax(conv_pool_dropout(self.src_x, self.keep_prob))
-        trg_logits = softmax(conv_pool_dropout(project(self.trg_x, self.keep_prob)))
+        trg_logits = softmax(conv_pool_dropout(project(self.trg_x), self.keep_prob))
         src_loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.src_y, self.nclasses), src_logits)
         trg_loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.trg_y, self.nclasses), trg_logits)
         src_pred = tf.argmax(src_logits, axis=1)
