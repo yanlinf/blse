@@ -7,6 +7,7 @@ import logging
 
 
 class BiSentiCNN(object):
+
     def __init__(self, sess, vec_dim, nclasses, src_lr, trg_lr, src_bs,
                  trg_bs, src_epochs, trg_epochs, num_filters, dropout):
         self.sess = sess
@@ -52,7 +53,7 @@ class BiSentiCNN(object):
         self.trg_y = tf.placeholder(tf.int32, shape=(None,))
 
         src_logits = softmax(conv_pool_dropout(self.src_x, self.keep_prob))
-        trg_logits = softmax(conv_pool_dropout(project(self.trg_x), self.keep_prob))
+        trg_logits = softmax(conv_pool_dropout(project(tf.nn.dropout(self.trg_x, keep_prob=0.5)), self.keep_prob))
         src_loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.src_y, self.nclasses), src_logits)
         trg_loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.trg_y, self.nclasses), trg_logits)
         src_pred = tf.argmax(src_logits, axis=1)
@@ -67,7 +68,7 @@ class BiSentiCNN(object):
         self.src_op = src_op
         self.trg_op = trg_op
 
-    def fit(self, src_x, src_y, trg_x, trg_y, val_x=None, val_y=None):
+    def fit(self, src_x, src_y, trg_x, trg_y, src_val_x=None, src_val_y=None, trg_val_x=None, trg_val_y=None):
         # train W1, W2, b using src_x and src_y
         nsample = len(src_x)
         for epoch in range(self.src_epochs):
@@ -87,8 +88,8 @@ class BiSentiCNN(object):
             fscore = f1_score(src_y, src_pred, average='macro')
             logging.info('epoch: %d  f1_macro: %.4f  loss: %.6f' % (epoch, fscore, src_loss))
 
-            if val_x is not None and val_y is not None:
-                logging.info('Test f1_macro: %.4f' % self.score(val_x, val_y))
+            if src_val_x is not None and src_val_y is not None:
+                logging.info('Test f1_macro: %.4f' % self.score(src_val_x, src_val_y))
 
         # train U using trg_x and trg_y
         nsample = len(trg_x)
@@ -109,13 +110,26 @@ class BiSentiCNN(object):
             fscore = f1_score(trg_y, trg_pred, average='macro')
             logging.info('epoch: %d  f1_macro: %.4f  loss: %.6f' % (epoch, fscore, trg_loss))
 
+            if trg_val_x is not None and trg_val_y is not None:
+                logging.info('Test f1_macro: %.4f' % self.trg_score(trg_val_x, trg_val_y))
+
     def predict(self, test_x):
         pred = self.sess.run(self.src_pred, {self.src_x: test_x, self.keep_prob: 1.})
         return pred
 
+    def trg_predict(self, trg_test_x):
+        trg_pred = self.sess.run(self.trg_pred, {self.trg_x: trg_test_x, self.keep_prob: 1.})
+        return trg_pred
+
     def score(self, test_x, test_y, scorer='f1_macro'):
         if scorer == 'f1_macro':
             return f1_score(test_y, self.predict(test_x), average='macro')
+        else:
+            raise NotImplementedError()
+
+    def trg_score(self, trg_test_x, trg_test_y, scorer='f1_macro'):
+        if scorer == 'f1_macro':
+            return f1_score(trg_test_y, self.trg_predict(trg_test_x), average='macro')
         else:
             raise NotImplementedError()
 
@@ -125,7 +139,6 @@ class BiSentiCNN(object):
     @property
     def W_target(self):
         return self.sess.run(self.U)
-
 
 
 def make_data(X, y, embedding, vec_dim, binary, pad_id, shuffle=True):
@@ -143,14 +156,16 @@ def main(args):
     logging.info(str(args))
 
     src_wv = utils.WordVecs(args.source_embedding, normalize=args.normalize)
-    trg_wv = utils.WordVecs(args.source_embedding, normalize=args.normalize)
+    trg_wv = utils.WordVecs(args.target_embedding, normalize=args.normalize)
     src_pad_id = src_wv.add_word('<PAD>', np.zeros(300))
     trg_pad_id = trg_wv.add_word('<PAD>', np.zeros(300))
     src_dataset = utils.SentimentDataset(args.source_dataset).to_index(src_wv)
     trg_dataset = utils.SentimentDataset(args.target_dataset).to_index(trg_wv)
     src_x, src_y = make_data(*src_dataset.train, src_wv.embedding, args.vector_dim, args.binary, src_pad_id)
-    test_x, test_y = make_data(*src_dataset.test, src_wv.embedding, args.vector_dim, args.binary, src_pad_id)
+    src_test_x, src_test_y = make_data(*src_dataset.test, src_wv.embedding, args.vector_dim, args.binary, src_pad_id)
     trg_x, trg_y = make_data(*trg_dataset.train, trg_wv.embedding, args.vector_dim, args.binary, trg_pad_id)
+    trg_test_x, trg_test_y = make_data(*trg_dataset.test, trg_wv.embedding, args.vector_dim, args.binary, trg_pad_id)
+    gold_dict = utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv)
 
     with tf.Session() as sess:
         model = BiSentiCNN(sess=sess, vec_dim=args.vector_dim, nclasses=(2 if args.binary else 4),
@@ -158,21 +173,20 @@ def main(args):
                            src_bs=args.source_batch_size, trg_bs=args.target_batch_size,
                            src_epochs=args.source_epochs, trg_epochs=args.target_epochs,
                            num_filters=args.filters, dropout=args.dropout)
-        model.fit(src_x, src_y, trg_x, trg_y, test_x, test_y)
+        model.fit(src_x, src_y, trg_x, trg_y, src_test_x, src_test_y, trg_test_x, trg_test_y)
         model.save(args.save_path)
 
-        src_emb = src_wv.embedding
-        trg_emb = np.dot(trg_wv.embedding, model.W_target)
-        trg_indices = np.argmax(np.dot(src_emb[gold_dict[:, 0]], trg_emb.T), axis=1)
+        bdi = utils.BDI(src_wv.embedding, trg_wv.embedding, 50, args.cuda)
+        trg_indices = bdi.project(np.identity(300, dtype=np.float32)).get_target_indices(gold_dict[:, 0])
         acc = np.mean((trg_indices == gold_dict[:, 1]).astype(np.int32))
-        logging.info('Accuracy on bilingual dictionary induction: %.4f' % acc)
+        logging.info('Accuracy on bilingual dictionary induction: %.8f' % acc)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-bi', '--binary', action='store_true', help='use 2-class set up')
     parser.add_argument('-slr', '--source_learning_rate', type=float, default=0.001, help='learning rate (default: 0.001)')
-    parser.add_argument('-tlr', '--target_learning_rate', type=float, default=0.001, help='learning rate (default: 0.001)')
+    parser.add_argument('-tlr', '--target_learning_rate', type=float, default=0.0001, help='learning rate (default: 0.001)')
     parser.add_argument('-sep', '--source_epochs', default=200, type=int, help='training epochs (default: 200)')
     parser.add_argument('-tep', '--target_epochs', default=200, type=int, help='training epochs (default: 200)')
     parser.add_argument('-sbs', '--source_batch_size', default=50, type=int, help='training batch size (default: 50)')
@@ -186,8 +200,11 @@ if __name__ == '__main__':
     parser.add_argument('-vd', '--vector_dim', default=300, type=int, help='dimension of each word vector (default: 300)')
     parser.add_argument('-gd', '--gold_dictionary', default='./lexicons/apertium/en-es.txt', help='gold bilingual dictionary for evaluation')
     parser.add_argument('--normalize', action='store_true', help='mean center and normalize word vectors')
+    parser.add_argument('--cuda', action='store_true', help='use cuda for BDI')
     parser.add_argument('--save_path', type=str, default='./checkpoints/bicnn.ckpt', help='file to save the trained parameters')
     parser.add_argument('--debug', action='store_const', dest='loglevel', default=logging.INFO, const=logging.DEBUG, help='print debug info')
+
+    parser.set_defaults(normalize=True)
 
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel,
