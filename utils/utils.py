@@ -8,6 +8,7 @@ import numpy as np
 from scipy.spatial.distance import cosine
 import csv
 import collections
+import sys
 import os
 
 
@@ -296,6 +297,8 @@ class SentiWordSet(object):
     """
     Helper class for loading sentimental words for further exmanation.
 
+    Parameters
+    ----------
     path: str
         file location of the word set
     encoding: str
@@ -329,3 +332,60 @@ class SentiWordSet(object):
                     pass
             self.wordsets[i] = indices
         return self
+
+
+class BDI(object):
+    """
+    Helper class for bilingual dictionary induction.
+
+    Parameters
+    ----------
+    src_emb: np.ndarray of shape (src_emb_size, vec_dim)
+    trg_emb: np.ndarray of shape (trg_emb_size, vec_dim)
+    batch_size: int
+    cuda: bool
+    """
+
+    def __init__(self, src_emb, trg_emb, batch_size, cuda=False):
+        if cuda:
+            try:
+                import cupy
+                xp = cupy
+            except ImportError:
+                print('Install cupy for cuda support')
+                sys.exit(-1)
+        else:
+            xp = np
+
+        self.cuda = cuda
+        self.xp = xp
+        self.src_emb = xp.array(src_emb, dtype=xp.float32)
+        self.trg_emb = xp.array(trg_emb, dtype=xp.float32)
+        self.batch_size = batch_size
+        self.trg_proj_emb = xp.empty(trg_emb.shape, dtype=xp.float32)
+        self.sim_vals = xp.empty((batch_size, trg_emb.shape[0]), dtype=xp.float32)
+
+    def project(self, W_target):
+        """
+        W_target: np.ndarray of shape (vec_dim, vec_dim)
+
+        Returns: self
+        """
+        xp = self.xp
+        xp.dot(self.trg_emb, xp.array(W_target), out=self.trg_proj_emb)
+        return self
+
+    def get_target_indices(self, src_ind):
+        """
+        src_ind: np.ndarray of shape (dict_size,)
+
+        Returns: np.ndarray of shape (dict_size,)
+        """
+        xp = self.xp
+        size = src_ind.shape[0]
+        trg_ind = xp.empty(size, dtype=xp.int32)
+        for i in range(0, size, self.batch_size):
+            j = min(i + self.batch_size, size)
+            xp.dot(self.src_emb[src_ind[i:j]], self.trg_proj_emb.T, out=self.sim_vals[:j - i])
+            xp.argmax(self.sim_vals[:j - i], axis=1, out=trg_ind[i:j])
+        return xp.asnumpy(trg_ind) if self.cuda else trg_ind
