@@ -10,6 +10,36 @@ import csv
 import collections
 import sys
 import os
+from cupy_utils import *
+
+
+def length_normalize(X, inplace=True):
+    xp = get_array_module(X)
+    norms = xp.sqrt(xp.sum(X**2, axis=1))
+    norms[norms == 0.] = 1.
+    if inplace:
+        X /= norms[:, xp.newaxis]
+    else:
+        return X / norms[:, xp.newaxis]
+
+
+def mean_center(X, inplace=True):
+    xp = get_array_module(X)
+    if inplace:
+        X -= xp.mean(X, axis=0)
+    else:
+        return X - xp.mean(X, axis=0)
+
+
+def normalize(X, actions, inplace=True):
+    for action in actions:
+        if action == 'unit':
+            res = length_normalize(X, inplace)
+        elif action == 'center':
+            res = mean_center(X, inplace)
+        if not inplace:
+            X = res
+    return X if not inplace else None
 
 
 class WordVecs(object):
@@ -348,15 +378,12 @@ class BDI(object):
 
     def __init__(self, src_emb, trg_emb, batch_size, cuda=False):
         if cuda:
-            try:
-                import cupy
-                xp = cupy
-            except ImportError:
-                print('Install cupy for cuda support')
-                sys.exit(-1)
+            xp = get_cupy()
+            if xp is None:
+                print('[WARNING] cupy not found, switching to numpy')
+                xp = np
         else:
             xp = np
-
         self.cuda = cuda
         self.xp = xp
         self.src_emb = xp.array(src_emb, dtype=xp.float32)
