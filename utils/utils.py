@@ -198,10 +198,13 @@ class WordVecs(object):
 
         return [[dist, self._idx2w[i]] for dist, i in most_similar]
 
-    def normalize(self):
-        norms = np.sqrt(np.sum(self._matrix**2, axis=1))
-        norms[norms == .0] = 1
-        self._matrix /= norms[:, np.newaxis]
+    def normalize(self, actions):
+        if actions is None:
+            norms = np.sqrt(np.sum(self._matrix**2, axis=1))
+            norms[norms == .0] = 1
+            self._matrix /= norms[:, np.newaxis]
+        else:
+            normalize(self._matrix, actions, inplace=True)
         return self
 
     def mean_center(self):
