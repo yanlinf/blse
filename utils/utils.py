@@ -10,36 +10,57 @@ import csv
 import collections
 import sys
 import os
-from cupy_utils import *
+from .cupy_utils import *
 
 
 def length_normalize(X, inplace=True):
+    """
+    Normalize rows of X to unit length.
+    
+    X: np.ndarray (or cupy.ndarray)
+    inplace: bool
+    
+    Returns: None or np.ndarray (or cupy.ndarray)
+    """
     xp = get_array_module(X)
     norms = xp.sqrt(xp.sum(X**2, axis=1))
     norms[norms == 0.] = 1.
     if inplace:
         X /= norms[:, xp.newaxis]
     else:
-        return X / norms[:, xp.newaxis]
+        X = X / norms[:, xp.newaxis]
+    return X
 
 
 def mean_center(X, inplace=True):
+    """
+    X: np.ndarray (or cupy.ndarray)
+    inplace: bool
+    
+    Returns: None or np.ndarray (or cupy.ndarray)
+    """
     xp = get_array_module(X)
     if inplace:
         X -= xp.mean(X, axis=0)
     else:
-        return X - xp.mean(X, axis=0)
+        X = X - xp.mean(X, axis=0)
+    return X
 
 
 def normalize(X, actions, inplace=True):
+    """
+    X: np.ndarray (or cupy.ndarray)
+    actions = list[str]
+    inplace: bool
+    
+    Returns: None or np.ndarray (or cupy.ndarray)
+    """
     for action in actions:
         if action == 'unit':
-            res = length_normalize(X, inplace)
+            X = length_normalize(X, inplace)
         elif action == 'center':
-            res = mean_center(X, inplace)
-        if not inplace:
-            X = res
-    return X if not inplace else None
+            X = mean_center(X, inplace)
+    return X
 
 
 class WordVecs(object):
