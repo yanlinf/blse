@@ -24,33 +24,6 @@ def plot(files, labels):
     ax.set_ylabel('accuracy')
 
 
-def top_k_mean(X, k, inplace=False):
-    size = X.shape[0]
-    ans = xp.zeros(size, dtype=xp.float32)
-    if k == 0:
-        return ans
-    if not inplace:
-        X = X.copy()
-    min_val = X.min()
-    ind0 = xp.arange(size)
-    ind1 = xp.zeros(size, dtype=xp.int32)
-    for i in range(k):
-        xp.argmax(X, axis=1, out=ind1)
-        ans += X[ind0, ind1]
-        X[ind0, ind1] = min_val
-    ans /= k
-    return ans
-
-
-def dropout(X, keep_prob, inplace=True):
-    mask = xp.random.rand(*X.shape) < keep_prob
-    if inplace:
-        X *= mask
-    else:
-        X = X * mask
-    return X
-
-
 def get_unsupervised_init_dict(src_emb, trg_emb, vocab_size, num_neighbours, norm_actions, direction):
     sim_size = min(src_emb.shape[0], trg_emb.shape[0], vocab_size) if vocab_size > 0 else min(src_emb.shape[0], trg_emb.shape[0])
     u, s, vt = xp.linalg.svd(src_emb[:sim_size], full_matrices=False)
@@ -65,8 +38,8 @@ def get_unsupervised_init_dict(src_emb, trg_emb, vocab_size, num_neighbours, nor
     utils.normalize(trg_sim, norm_actions)
     sim = xp.dot(src_sim, trg_sim.T)
     del src_sim, trg_sim
-    src_knn_sim = top_k_mean(sim, num_neighbours)
-    trg_knn_sim = top_k_mean(sim.T, num_neighbours)
+    src_knn_sim = utils.top_k_mean(sim, num_neighbours, inplace=False)
+    trg_knn_sim = utils.top_k_mean(sim.T, num_neighbours, inplace=False)
     sim -= src_knn_sim[:, xp.newaxis] / 2 + trg_knn_sim / 2
 
     if args.direction == 'forward':
@@ -115,6 +88,7 @@ def main(args):
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
     trg_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
     gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
+    keep_prob = args.dropout_init
 
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
@@ -122,27 +96,10 @@ def main(args):
         init_dict = get_unsupervised_init_dict(src_emb, trg_emb, args.vocab_cutoff, args.csls, args.normalize, args.direction)
     else:
         init_dict = xp.array(utils.BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
+    curr_dict = init_dict
     del src_wv, trg_wv
 
-    # allocate memory for large matrices
-    src_size = src_emb.shape[0]
-    trg_size = trg_emb.shape[0]
-    fwd_trg_size = min(trg_size, args.vocab_cutoff) if args.target_cutoff else trg_size
-    bwd_src_size = min(src_size, args.vocab_cutoff) if args.source_cutoff else src_size
-    fwd_sim = xp.zeros((args.batch_size, fwd_trg_size), dtype=xp.float32)
-    bwd_sim = xp.zeros((args.batch_size, bwd_src_size), dtype=xp.float32)
-    val_sim = xp.zeros((args.val_batch_size, trg_size), dtype=xp.float32)
-    fwd_src_size = min(src_size, args.vocab_cutoff) if args.vocab_cutoff > 0 else src_size
-    bwd_trg_size = min(trg_size, args.vocab_cutoff) if args.vocab_cutoff > 0 else trg_size
-    fwd_ind = xp.arange(fwd_src_size, dtype=xp.int32)
-    bwd_ind = xp.arange(bwd_trg_size, dtype=xp.int32)
-    fwd_trg_ind = xp.arange(fwd_src_size, dtype=xp.int32)
-    bwd_src_ind = xp.arange(bwd_trg_size, dtype=xp.int32)
-    curr_dict = init_dict
-    trg_proj_emb = xp.empty((trg_size, args.vector_dim), dtype=xp.float32)
-    keep_prob = args.dropout_init
-
-    logging.debug('[DEBUG] src_emb_size: %d, trg_emb_size: %d, init_dict_size: %d, gold_dict_size: %d, fwd_trg_size: %d, bwd_src_size: %d' % (src_size, trg_size, init_dict.shape[0], gold_dict.shape[0], fwd_trg_size, bwd_src_size))
+    bdi_obj = utils.BDI(src_emb, trg_emb, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both', direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size)
 
     # self learning
     for epoch in range(args.epochs):
@@ -154,53 +111,19 @@ def main(args):
                 W_trg = pickle.load(fin)
         else:
             W_trg = get_W_target(X_src, X_trg, orthogonal=args.orthogonal)
-        xp.dot(trg_emb, W_trg, out=trg_proj_emb)
+        bdi_obj.project(W_trg)
 
         # dictionary induction
-        bs = args.batch_size
-        if args.direction in ('forward', 'union'):
-            knn_sim_fwd = xp.zeros(fwd_trg_size, dtype=xp.float32)
-            if args.csls > 0:
-                for i in range(0, fwd_trg_size, bs):
-                    j = min(i + bs, fwd_trg_size)
-                    xp.dot(trg_proj_emb[i:j], src_emb[:fwd_src_size].T, out=bwd_sim[:j - i])
-                    knn_sim_fwd[i:j] = top_k_mean(bwd_sim[:j - i], k=args.csls, inplace=True)
-            for i in range(0, fwd_src_size, bs):
-                j = min(fwd_src_size, i + bs)
-                xp.dot(src_emb[fwd_ind[i:j]], trg_proj_emb[:fwd_trg_size].T, out=fwd_sim[:j - i])
-                fwd_sim[:j - i] -= knn_sim_fwd / 2
-                dropout(fwd_sim[:j - i], keep_prob).argmax(axis=1, out=fwd_trg_ind[i:j])
-        if args.direction in ('backward', 'union'):
-            knn_sim_bwd = xp.zeros(bwd_src_size, dtype=xp.float32)
-            if args.csls > 0:
-                for i in range(0, bwd_src_size, bs):
-                    j = min(i + bs, bwd_src_size)
-                    xp.dot(src_emb[i:j], trg_proj_emb[:bwd_trg_size].T, out=fwd_sim[:j - i])
-                    knn_sim_bwd[i:j] = top_k_mean(fwd_sim[:j - i], k=args.csls, inplace=True)
-            for i in range(0, bwd_trg_size, bs):
-                j = min(bwd_trg_size, i + bs)
-                xp.dot(trg_proj_emb[bwd_ind[i:j]], src_emb[:bwd_src_size].T, out=bwd_sim[:j - i])
-                bwd_sim[:j - i] -= knn_sim_bwd / 2
-                dropout(bwd_sim[:j - i], keep_prob).argmax(axis=1, out=bwd_src_ind[i:j])
-        if args.direction == 'forward':
-            curr_dict = xp.stack([fwd_ind, fwd_trg_ind], axis=1)
-        elif args.direction == 'backward':
-            curr_dict = xp.stack([bwd_src_ind, bwd_ind], axis=1)
-        elif args.direction == 'union':
-            curr_dict = xp.stack([xp.concatenate((fwd_ind, bwd_src_ind)), xp.concatenate((fwd_trg_ind, bwd_ind))], axis=1)
+        curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
         
+        # update keep_prob
         if (epoch + 1) % args.dropout_interval == 0:
             keep_prob = min(1., keep_prob + args.dropout_step)
 
         # valiadation
-        bs = args.val_batch_size
         if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
-            val_trg_indices = xp.zeros(gold_dict.shape[0], dtype=xp.int32)
-            for i in range(0, gold_dict.shape[0], bs):
-                j = min(gold_dict.shape[0], i + bs)
-                xp.dot(src_emb[gold_dict[i:j, 0]], trg_proj_emb.T, out=val_sim[:j - i])
-                xp.argmax(val_sim[:j - i], axis=1, out=val_trg_indices[i:j])
-            accuracy = xp.mean((val_trg_indices == gold_dict[:, 1]).astype(xp.int32))
+            val_trg_ind = bdi_obj.get_target_indices(gold_dict[:,0])
+            accuracy = xp.mean((val_trg_ind == gold_dict[:,1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
             log_file.write('%d,%.4f\n' % (epoch, accuracy))
 
