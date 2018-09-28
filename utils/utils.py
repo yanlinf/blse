@@ -219,7 +219,7 @@ class WordVecs(object):
 
         return [[dist, self._idx2w[i]] for dist, i in most_similar]
 
-    def normalize(self, actions):
+    def normalize(self, actions=None):
         if actions is None:
             norms = np.sqrt(np.sum(self._matrix**2, axis=1))
             norms[norms == .0] = 1
