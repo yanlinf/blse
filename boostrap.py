@@ -110,7 +110,6 @@ def main(args):
         os.mkdir('log')
     log_file = open(args.log, 'w', encoding='utf-8')
 
-
     src_wv = utils.WordVecs(args.source_embedding).normalize(args.normalize)
     trg_wv = utils.WordVecs(args.target_embedding).normalize(args.normalize)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
@@ -119,10 +118,10 @@ def main(args):
 
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
-    elif args.unsupervised:
+    elif args.init_unsupervised:
         init_dict = get_unsupervised_init_dict(src_emb, trg_emb, args.vocab_cutoff, args.csls, args.normalize, args.direction)
     else:
-        init_dict = xp.array(utils.BilingualDict(args.dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
+        init_dict = xp.array(utils.BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     del src_wv, trg_wv
 
     # allocate memory for large matrices
@@ -141,10 +140,9 @@ def main(args):
     bwd_src_ind = xp.arange(bwd_trg_size, dtype=xp.int32)
     curr_dict = init_dict
     trg_proj_emb = xp.empty((trg_size, args.vector_dim), dtype=xp.float32)
-    keep_prob = args.dropout
-    
-    logging.info('src_emb_size: %d, trg_emb_size: %d, init_dict_size: %d, gold_dict_size: %d, fwd_trg_size: %d, bwd_src_size: %d' % (src_size, trg_size, init_dict.shape[0], gold_dict.shape[0], fwd_trg_size, bwd_src_size))
-    logging.info('=============================================================================')
+    keep_prob = args.dropout_init
+
+    logging.debug('[DEBUG] src_emb_size: %d, trg_emb_size: %d, init_dict_size: %d, gold_dict_size: %d, fwd_trg_size: %d, bwd_src_size: %d' % (src_size, trg_size, init_dict.shape[0], gold_dict.shape[0], fwd_trg_size, bwd_src_size))
 
     # self learning
     for epoch in range(args.epochs):
@@ -191,12 +189,12 @@ def main(args):
         elif args.direction == 'union':
             curr_dict = xp.stack([xp.concatenate((fwd_ind, bwd_src_ind)), xp.concatenate((fwd_trg_ind, bwd_ind))], axis=1)
         
-        if epoch % 4 == 0:
-            keep_prob = min(1., keep_prob + 0.1)
+        if (epoch + 1) % args.dropout_interval == 0:
+            keep_prob = min(1., keep_prob + args.dropout_step)
 
         # valiadation
         bs = args.val_batch_size
-        if not args.no_valiadation or epoch == (args.epochs - 1):
+        if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
             val_trg_indices = xp.zeros(gold_dict.shape[0], dtype=xp.int32)
             for i in range(0, gold_dict.shape[0], bs):
                 j = min(gold_dict.shape[0], i + bs)
@@ -209,6 +207,8 @@ def main(args):
     log_file.close()
 
     # save W_trg
+    if not os.path.exists('checkpoints'):
+        os.mkdir('checkpoints')
     with open(args.save_path, 'wb') as fout:
         pickle.dump(W_trg, fout)
 
@@ -222,37 +222,49 @@ if __name__ == '__main__':
     parser.add_argument('-gd', '--gold_dictionary', default='./lexicons/apertium/en-es.txt', help='gold bilingual dictionary for evaluation(default: ./lexicons/apertium/en-es.txt)')
     parser.add_argument('-W', '--W_target', type=str, default='', help='restore W_target from a file')
     parser.add_argument('-vd', '--vector_dim', default=300, type=int, help='dimension of each word vector (default: 300)')
-
-    parser.add_argument('-e', '--epochs', default=50, type=int, help='training epochs (default: 50)')
-    parser.add_argument('-bs', '--batch_size', default=1000, type=int, help='training batch size (default: 1000)')
-    parser.add_argument('-vbs', '--val_batch_size', default=20, type=int, help='training batch size (default: 20)')
-
-    parser.add_argument('--orthogonal', action='store_true', help='restrict projection matrix to be orthogonal')
-    parser.add_argument('-vc', '--vocab_cutoff', default=20000, type=int, help='restrict the vocabulary to k most frequent words')
-    parser.add_argument('-tc', '--target_cutoff', action='store_true', help='target vocab cutoff during training')
-    parser.add_argument('-sc', '--source_cutoff', action='store_true', help='source vocab cutoff during training')
-    parser.add_argument('--csls', type=int, default=10, help='number of csls neighbours')
-    parser.add_argument('--dropout', type=float, default=0.1, help='initial keep prob of the dropout machanism')
-    parser.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['unit', 'center', 'unit'], help='normalization actions')
-    parser.add_argument('--direction', choices=['forward', 'backward', 'union'], default='union', help='direction of dictionary induction')
-
+    parser.add_argument('-e', '--epochs', default=500, type=int, help='training epochs (default: 500)')
+    parser.add_argument('-bs', '--batch_size', default=5000, type=int, help='training batch size (default: 5000)')
+    parser.add_argument('-vbs', '--val_batch_size', default=1000, type=int, help='training batch size (default: 1000)')
     parser.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
+    parser.add_argument('--valiadation_step', type=int, default=50, help='valiadation frequency')
     parser.add_argument('--debug', action='store_const', dest='loglevel', default=logging.INFO, const=logging.DEBUG, help='print debug info')
     parser.add_argument('--save_path', default='./checkpoints/wtarget.bin', help='file to save the learned W_target')
     parser.add_argument('--cuda', action='store_true', help='use cuda to accelerate')
     parser.add_argument('--log', default='./log/init100.csv', type=str, help='file to print log')
     parser.add_argument('--plot', action='store_true', help='plot results')
+    
+    init_group = parser.add_mutually_exclusive_group()
+    init_group.add_argument('-d', '--init_dictionary', default='./init_dict/init100.txt', help='bilingual dictionary for learning bilingual mapping (default: ./init_dict/init100.txt)')
+    init_group.add_argument('--init_num', action='store_true', help='use numerals as initial dictionary')
+    init_group.add_argument('--init_unsupervised', action='store_true', help='use unsupervised init')
 
-    parser.add_argument('--recommend', action='store_true', help='use recommended settings')
+    mapping_group = parser.add_argument_group()
+    mapping_group.add_argument('--orthogonal', action='store_true', help='restrict projection matrix to be orthogonal')
+    mapping_group.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['unit', 'center', 'unit'], help='normalization actions')
 
-    init_dict_group = parser.add_mutually_exclusive_group()
-    init_dict_group.add_argument('-d', '--dictionary', default='./init_dict/init100.txt', help='bilingual dictionary for learning bilingual mapping (default: ./init_dict/init100.txt)')
-    init_dict_group.add_argument('--init_num', action='store_true', help='use numerals as initial dictionary')
-    init_dict_group.add_argument('--unsupervised', action='store_true', help='use unsupervised init')
+    induction_group = parser.add_argument_group()
+    induction_group.add_argument('-vc', '--vocab_cutoff', default=10000, type=int, help='restrict the vocabulary to k most frequent words')
+    induction_group.add_argument('-tc', '--target_cutoff', action='store_true', help='target vocab cutoff during training')
+    induction_group.add_argument('-sc', '--source_cutoff', action='store_true', help='source vocab cutoff during training')
+    induction_group.add_argument('--csls', type=int, default=10, help='number of csls neighbours')
+    induction_group.add_argument('--dropout_init', type=float, default=0.1, help='initial keep prob of the dropout machanism')
+    induction_group.add_argument('--dropout_interval', type=int, default=30, help='increase keep_prob every m steps')
+    induction_group.add_argument('--dropout_step', type=float, default=0.1, help='increase keep_prob by a small step')
+    induction_group.add_argument('--direction', choices=['forward', 'backward', 'union'], default='union', help='direction of dictionary induction')
+
+    recommend_group = parser.add_mutually_exclusive_group()
+    recommend_group.add_argument('-u', '--unsupervised', action='store_true', help='use recommended settings')
+    recommend_group.add_argument('-s5', '--supervised5000', action='store_true', help='use supervised5000 settings')
+    recommend_group.add_argument('-s1', '--supervised100', action='store_true', help='use supervised100 settings')
 
     args = parser.parse_args()
-    if args.recommend:
-        parser.set_defaults(unsupervised=True, target_cutoff=True, source_cutoff=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], epochs=50, batch_size=1000, val_bach_size=20, vocab_cutoff=20000, orthogonal=True)
+    if args.unsupervised:
+        parser.set_defaults(init_unsupervised=True, target_cutoff=True, source_cutoff=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/unsupervised.csv')
+    elif args.supervised5000:
+        parser.set_defaults(init_dictionary='./init_dict/init5000.txt', target_cutoff=True, source_cutoff=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised5000.csv')
+    elif args.supervised100:
+        parser.set_defaults(init_dictionary='./init_dict/init100.txt', target_cutoff=True, source_cutoff=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised100.csv')
+
     args = parser.parse_args()
 
     logging.basicConfig(level=args.loglevel, format='%(asctime)s: %(message)s')
