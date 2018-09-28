@@ -86,7 +86,7 @@ class BiSentiLR(object):
         self.trg_op = trg_op
         self.U_ortho = U_ortho
 
-    def fit(self, src_x, src_y, trg_x, trg_y, src_val_x=None, src_val_y=None, trg_val_x=None, trg_val_y=None, X_src=None, X_trg=None):
+    def fit(self, src_x, src_y, trg_x, trg_y, src_val_x=None, src_val_y=None, trg_val_x=None, trg_val_y=None, X_src=None, X_trg=None, W_true=None):
         src_writer = tf.summary.FileWriter(self.summaries_dir + '/src', self.sess.graph)
         trg_writer = tf.summary.FileWriter(self.summaries_dir + '/trg', self.sess.graph)
 
@@ -155,6 +155,10 @@ class BiSentiLR(object):
             if X_src is not None and X_trg is not None:
                 proj_loss_ = self.sess.run(self.proj_loss, {self.X_src: X_src, self.X_trg: X_trg})
                 logging.info('Projection error: %.4f' % proj_loss_)
+                
+            if W_true is not None:
+                fnorm = np.sum((self.W_target - W_true)**2)
+                logging.info('F-norm error: %.4f' % fnorm)
 
         logging.info('==========================================================')
         DEBUG('Test f1_macro: %.4f' % self.score(src_val_x, src_val_y))
@@ -220,17 +224,16 @@ def main(args):
     X_src = src_wv.embedding[gold_dict[:, 0]]
     X_trg = trg_wv.embedding[gold_dict[:, 1]]
 
-#     u, s, vt = np.linalg.svd(np.dot(X_src.T, X_trg))
-#     W_trg = np.dot(vt.T, u.T)
-    W_trg = None
+    u, s, vt = np.linalg.svd(np.dot(X_src.T, X_trg))
+    W_true = np.dot(vt.T, u.T)
 
     with tf.Session() as sess:
         model = BiSentiLR(sess=sess, vec_dim=args.vector_dim, nclasses=(2 if args.binary else 4),
                           src_lr=args.source_learning_rate, trg_lr=args.target_learning_rate,
                           src_bs=args.source_batch_size, trg_bs=args.target_batch_size,
                           src_epochs=args.source_epochs, trg_epochs=args.target_epochs,
-                          orthogonal=args.orthogonal, summaries_dir=args.summaries_dir, W_trg=W_trg)
-        model.fit(src_x, src_y, trg_x, trg_y, src_test_x, src_test_y, trg_test_x, trg_test_y, X_src, X_trg)
+                          orthogonal=args.orthogonal, summaries_dir=args.summaries_dir, W_trg=None)
+        model.fit(src_x, src_y, trg_x, trg_y, src_test_x, src_test_y, trg_test_x, trg_test_y, X_src, X_trg, W_true)
         model.save(args.save_path)
 
         u, s, vt = np.linalg.svd(model.W_target)
@@ -263,8 +266,8 @@ if __name__ == '__main__':
     parser.add_argument('--summaries_dir', type=str, default='./log', help='dir to save summaries')
     parser.add_argument('--debug', action='store_const', dest='loglevel', default=logging.INFO, const=logging.DEBUG, help='print debug info')
 
-    parser.set_defaults(normalize=True, orthogonal=False, binary=True, cuda=True)
-#     parser.set_defaults(normalize=True, orthogonal=True, binary=True, cuda=True)
+    parser.set_defaults(normalize=True, orthogonal=True, binary=True, cuda=True)
+
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel,
                         format='%(asctime)s: %(message)s')
