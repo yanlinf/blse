@@ -439,7 +439,7 @@ class SentimentDataset(object):
         """
         wordvecs: WordVecs object
 
-        Returns: None
+        Returns: self
         """
         def sents2index(X, y):
             X_new = []
@@ -456,6 +456,27 @@ class SentimentDataset(object):
         self.train = sents2index(*self.train)
         self.dev = sents2index(*self.dev)
         self.test = sents2index(*self.test)
+        return self
+
+    def to_vecs(self, emb):
+        """
+        emb: ndarray of shape (vocab_size, vec_dim)
+
+        Returns: self
+        """
+        def ind2vec(X, y):
+            size = len(X)
+            vec_dim = emb.shape[1]
+            X_new = xp.zeros((size, vec_dim), dtype=xp.float32)
+            for i, row in enumerate(X):
+                if len(row) > 0:
+                    X_new[i] = xp.mean(emb[row], axis=0)
+            return X_new, y
+
+        xp = get_array_module(emb)
+        self.train = ind2vec(*self.train)
+        self.dev = ind2vec(*self.dev)
+        self.test = ind2vec(*self.test)
         return self
 
 
