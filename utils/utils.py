@@ -467,13 +467,12 @@ class SentimentDataset(object):
         def ind2vec(X, y):
             size = len(X)
             vec_dim = emb.shape[1]
-            X_new = xp.zeros((size, vec_dim), dtype=xp.float32)
+            X_new = np.zeros((size, vec_dim), dtype=np.float32)
             for i, row in enumerate(X):
                 if len(row) > 0:
-                    X_new[i] = xp.mean(emb[row], axis=0)
+                    X_new[i] = np.mean(emb[row], axis=0)
             return X_new, y
 
-        xp = get_array_module(emb)
         self.train = ind2vec(*self.train)
         self.dev = ind2vec(*self.dev)
         self.test = ind2vec(*self.test)
