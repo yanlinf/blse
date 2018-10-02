@@ -16,10 +16,10 @@ from .cupy_utils import *
 def length_normalize(X, inplace=True):
     """
     Normalize rows of X to unit length.
-    
+
     X: np.ndarray (or cupy.ndarray)
     inplace: bool
-    
+
     Returns: None or np.ndarray (or cupy.ndarray)
     """
     xp = get_array_module(X)
@@ -36,7 +36,7 @@ def mean_center(X, inplace=True):
     """
     X: np.ndarray (or cupy.ndarray)
     inplace: bool
-    
+
     Returns: None or np.ndarray (or cupy.ndarray)
     """
     xp = get_array_module(X)
@@ -52,7 +52,7 @@ def normalize(X, actions, inplace=True):
     X: np.ndarray (or cupy.ndarray)
     actions = list[str]
     inplace: bool
-    
+
     Returns: None or np.ndarray (or cupy.ndarray)
     """
     for action in actions:
@@ -66,11 +66,11 @@ def normalize(X, actions, inplace=True):
 def top_k_mean(X, k, inplace=False):
     """
     Average of top-k similarites.
-    
+
     X: np.ndarray (or cupy.ndarray)
     k: int
     inplace: bool
-    
+
     Returns: np.ndarray (or cupy.ndarray)
     """
     xp = get_array_module(X)
@@ -94,11 +94,11 @@ def top_k_mean(X, k, inplace=False):
 def dropout(X, keep_prob, inplace=True):
     """
     Randomly set entries of X to zeros.
-    
+
     X: np.ndarray (or cupy.ndarray)
     keep_prob: float
     inplace: bool
-    
+
     Returns: np.ndarray (or cupy.ndarray)
     """
     xp = get_array_module(X)
@@ -108,6 +108,71 @@ def dropout(X, keep_prob, inplace=True):
     else:
         X = X * mask
     return X
+
+
+def get_projection_matrix(X_src, X_trg, orthogonal, direction='forward', out=None):
+    """
+    X_src: ndarray
+    X_trg: ndarray
+    orthogonal: bool
+    direction: str
+        returns W_src if 'forward', W_trg otherwise
+    """
+    xp = get_array_module(X_src, X_trg)
+    if orthogonal:
+        if direction == 'forward':
+            u, s, vt = xp.linalg.svd(xp.dot(X_trg.T, X_src))
+            W = xp.dot(vt.T, u.T, out=out)
+        elif direction == 'backward':
+            u, s, vt = xp.linalg.svd(xp.dot(X_src.T, X_trg))
+            W = xp.dot(vt.T, u.T, out=out)
+    else:
+        if direction == 'forward':
+            W = xp.dot(xp.linalg.pinv(X_src), X_trg, out=out)
+        elif direction == 'backward':
+            W = xp.dot(xp.linalg.pinv(X_trg), X_src, out=out)
+    return W
+
+
+def get_unsupervised_init_dict(src_emb, trg_emb, cutoff_size, csls, norm_actions, direction):
+    """
+    Given source embedding and target embedding, return a initial bilingual
+    dictionary base on similarity distribution.
+
+    src_emb: ndarray of shape (src_size, vec_dim)
+    trg_emb: ndarray of shape (trg_size, vec_dim)
+    cutoff_size: int
+    csls: int
+    norm_actions: list[str]
+    direction: str
+
+    Returns: ndarray of shape (dict_size, 2)
+    """
+    xp = get_array_module(src_emb, trg_emb)
+    sim_size = min(src_emb.shape[0], trg_emb.shape[0], cutoff_size) if cutoff_size > 0 else min(src_emb.shape[0], trg_emb.shape[0])
+    u, s, vt = xp.linalg.svd(src_emb[:sim_size], full_matrices=False)
+    src_sim = (u * s) @ u.T
+    u, s, vt = xp.linalg.svd(trg_emb[:sim_size], full_matrices=False)
+    trg_sim = (u * s) @ u.T
+    del u, s, vt
+
+    src_sim.sort(axis=1)
+    trg_sim.sort(axis=1)
+    normalize(src_sim, norm_actions)
+    normalize(trg_sim, norm_actions)
+    sim = xp.dot(src_sim, trg_sim.T)
+    del src_sim, trg_sim
+    src_knn_sim = top_k_mean(sim, csls, inplace=False)
+    trg_knn_sim = top_k_mean(sim.T, csls, inplace=False)
+    sim -= src_knn_sim[:, xp.newaxis] / 2 + trg_knn_sim / 2
+
+    if direction == 'forward':
+        init_dict = xp.stack([xp.arange(sim_size), xp.argmax(sim, axis=1)], axis=1)
+    elif direction == 'backward':
+        init_dict = xp.stack([xp.argmax(sim, axis=0), xp.arange(sim_size)], axis=1)
+    elif direction == 'union':
+        init_dict = xp.stack([xp.concatenate((xp.arange(sim_size), xp.argmax(sim, axis=0))), xp.concatenate((xp.argmax(sim, axis=1), xp.arange(sim_size)))], axis=1)
+    return init_dict
 
 
 class WordVecs(object):
@@ -449,7 +514,7 @@ class BDI(object):
 
     def __init__(self, src_emb, trg_emb, batch_size=5000, cutoff_size=10000, cutoff_type='both', direction=None, csls=10, batch_size_val=1000):
         if cutoff_type == 'oneway' and csls > 0:
-            raise ValueEror("cutoff_type='both' and csls > 0 not supported") # TODO
+            raise ValueEror("cutoff_type='both' and csls > 0 not supported")  # TODO
 
         xp = get_array_module(src_emb, trg_emb)
         self.xp = xp
@@ -461,19 +526,20 @@ class BDI(object):
         self.direction = direction
         self.csls = csls
         self.batch_size_val = batch_size_val
-        self.trg_proj_emb = xp.empty(trg_emb.shape, dtype=xp.float32)
+        self.src_proj_emb = self.src_emb[:self.cutoff_size].copy()
+        self.trg_proj_emb = self.trg_emb.copy()
 
         self.src_size = src_emb.shape[0]
         self.trg_size = trg_emb.shape[0]
         if direction in ('forward', 'union') or csls > 0:
             self.fwd_src_size = cutoff_size
-            self.fwd_trg_size = cutoff_size if cutoff_type =='both' else trg_size
+            self.fwd_trg_size = cutoff_size if cutoff_type == 'both' else trg_size
             self.fwd_ind = xp.arange(self.fwd_src_size, dtype=xp.int32)
             self.fwd_trg = xp.empty(self.fwd_src_size, dtype=xp.int32)
             self.fwd_sim = xp.empty((batch_size, self.fwd_trg_size), dtype=xp.float32)
         if direction in ('backward', 'union') or csls > 0:
             self.bwd_trg_size = cutoff_size
-            self.bwd_src_size = cutoff_size if cutoff_type =='both' else src_size
+            self.bwd_src_size = cutoff_size if cutoff_type == 'both' else src_size
             self.bwd_ind = xp.arange(self.bwd_trg_size, dtype=xp.int32)
             self.bwd_src = xp.arange(self.bwd_trg_size, dtype=xp.int32)
             self.bwd_sim = xp.empty((batch_size, self.bwd_src_size), dtype=xp.float32)
@@ -487,20 +553,23 @@ class BDI(object):
             if direction in ('backward', 'union'):
                 self.bwd_knn_sim = xp.empty(self.bwd_src_size, dtype=xp.float32)
 
-    def project(self, W_target):
+    def project(self, W, direction='backward'):
         """
         W_target: ndarray of shape (vec_dim, vec_dim)
 
         Returns: self
         """
         xp = self.xp
-        xp.dot(self.trg_emb, xp.array(W_target), out=self.trg_proj_emb)
+        if direction == 'forward':
+            xp.dot(self.src_emb[:self.cutoff_size], W, out=self.src_proj_emb)
+        else:
+            xp.dot(self.trg_emb, W, out=self.trg_proj_emb)
         return self
-                                     
+
     def get_bilingual_dict_with_cutoff(self, keep_prob=1.):
         """
         keep_prob: float
-        
+
         Returns: ndarray of shape (dict_size, 2)
         """
         xp = self.xp
@@ -508,31 +577,31 @@ class BDI(object):
             if self.csls > 0:
                 for i in range(0, self.fwd_trg_size, self.batch_size):
                     j = min(self.fwd_trg_size, i + self.batch_size)
-                    xp.dot(self.trg_proj_emb[i:j], self.src_emb[:self.fwd_src_size].T, out=self.bwd_sim[:j-i])
-                    self.fwd_knn_sim[i:j] = top_k_mean(self.bwd_sim[:j-i], self.csls, inplace=True)
+                    xp.dot(self.trg_proj_emb[i:j], self.src_proj_emb[:self.fwd_src_size].T, out=self.bwd_sim[:j - i])
+                    self.fwd_knn_sim[i:j] = top_k_mean(self.bwd_sim[:j - i], self.csls, inplace=True)
             for i in range(0, self.fwd_src_size, self.batch_size):
                 j = min(self.fwd_src_size, i + self.batch_size)
-                xp.dot(self.src_emb[i:j], self.trg_proj_emb[:self.fwd_trg_size].T, out=self.fwd_sim[:j-i])
-                self.fwd_sim[:j-i] -= self.fwd_knn_sim / 2
-                dropout(self.fwd_sim[:j-i], keep_prob, inplace=True).argmax(axis=1, out=self.fwd_trg[i:j])
+                xp.dot(self.src_proj_emb[i:j], self.trg_proj_emb[:self.fwd_trg_size].T, out=self.fwd_sim[:j - i])
+                self.fwd_sim[:j - i] -= self.fwd_knn_sim / 2
+                dropout(self.fwd_sim[:j - i], keep_prob, inplace=True).argmax(axis=1, out=self.fwd_trg[i:j])
         if self.direction in ('backward', 'union'):
             if self.csls > 0:
                 for i in range(0, self.bwd_src_size, self.batch_size):
                     j = min(self.bwd_src_size, i + self.batch_size)
-                    xp.dot(self.src_emb[i:j], self.trg_proj_emb[:self.bwd_trg_size].T, out=self.fwd_sim[:j-i])
-                    self.bwd_knn_sim[i:j] = top_k_mean(self.fwd_sim[:j-i], self.csls, inplace=True)
+                    xp.dot(self.src_proj_emb[i:j], self.trg_proj_emb[:self.bwd_trg_size].T, out=self.fwd_sim[:j - i])
+                    self.bwd_knn_sim[i:j] = top_k_mean(self.fwd_sim[:j - i], self.csls, inplace=True)
             for i in range(0, self.bwd_trg_size, self.batch_size):
                 j = min(self.bwd_trg_size, i + self.batch_size)
-                xp.dot(self.trg_proj_emb[i:j], self.src_emb[:self.bwd_src_size].T, out=self.bwd_sim[:j-i])
-                self.bwd_sim[:j-i] -= self.bwd_knn_sim / 2
-                dropout(self.bwd_sim[:j-i], keep_prob, inplace=True).argmax(axis=1, out=self.bwd_src[i:j])
+                xp.dot(self.trg_proj_emb[i:j], self.src_proj_emb[:self.bwd_src_size].T, out=self.bwd_sim[:j - i])
+                self.bwd_sim[:j - i] -= self.bwd_knn_sim / 2
+                dropout(self.bwd_sim[:j - i], keep_prob, inplace=True).argmax(axis=1, out=self.bwd_src[i:j])
         if self.direction == 'forward':
             xp.stack([self.fwd_ind, self.fwd_trg], axis=1, out=self.dict)
         elif self.direction == 'backward':
             xp.stack([self.bwd_src, self.bwd_ind], axis=1, out=self.dict)
         elif self.direction == 'union':
-            self.dict[:,0] = xp.concatenate((self.fwd_ind, self.bwd_src))
-            self.dict[:,1] = xp.concatenate((self.fwd_trg, self.bwd_ind))
+            self.dict[:, 0] = xp.concatenate((self.fwd_ind, self.bwd_src))
+            self.dict[:, 1] = xp.concatenate((self.fwd_trg, self.bwd_ind))
         return self.dict.copy()
 
     def get_target_indices(self, src_ind):
@@ -546,6 +615,6 @@ class BDI(object):
         trg_ind = xp.empty(size, dtype=xp.int32)
         for i in range(0, size, self.batch_size_val):
             j = min(i + self.batch_size_val, size)
-            xp.dot(self.src_emb[src_ind[i:j]], self.trg_proj_emb.T, out=self.sim_val[:j - i])
+            xp.dot(self.src_proj_emb[src_ind[i:j]], self.trg_proj_emb.T, out=self.sim_val[: j - i])
             xp.argmax(self.sim_val[:j - i], axis=1, out=trg_ind[i:j])
         return trg_ind
