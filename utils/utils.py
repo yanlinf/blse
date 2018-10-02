@@ -548,6 +548,7 @@ class BDI(object):
         self.batch_size_val = batch_size_val
         self.src_proj_emb = self.src_emb[:self.cutoff_size].copy()
         self.trg_proj_emb = self.trg_emb.copy()
+        self.W_src = self.W_trg = xp.identity(src_emb.shape[1], dtype=xp.float32)
 
         self.src_size = src_emb.shape[0]
         self.trg_size = trg_emb.shape[0]
@@ -582,8 +583,10 @@ class BDI(object):
         xp = self.xp
         if direction == 'forward':
             xp.dot(self.src_emb[:self.cutoff_size], W, out=self.src_proj_emb)
+            self.W_src = W.copy()
         else:
             xp.dot(self.trg_emb, W, out=self.trg_proj_emb)
+            self.W_trg = W.copy()
         return self
 
     def get_bilingual_dict_with_cutoff(self, keep_prob=1.):
@@ -633,8 +636,9 @@ class BDI(object):
         xp = self.xp
         size = src_ind.shape[0]
         trg_ind = xp.empty(size, dtype=xp.int32)
+        xsrc = xp.dot(self.src_emb[src_ind], self.W_src)
         for i in range(0, size, self.batch_size_val):
             j = min(i + self.batch_size_val, size)
-            xp.dot(self.src_proj_emb[src_ind[i:j]], self.trg_proj_emb.T, out=self.sim_val[: j - i])
+            xp.dot(xsrc[i:j], self.trg_proj_emb.T, out=self.sim_val[: j - i])
             xp.argmax(self.sim_val[:j - i], axis=1, out=trg_ind[i:j])
         return trg_ind
