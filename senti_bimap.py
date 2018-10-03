@@ -30,7 +30,7 @@ def get_pos_neg_vecs(X, y):
     return xpos, xneg
 
 
-def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward', orthogonal=False, normalize=False):
+def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward', orthogonal=False, normalize=False, spectral=False, threshold=1.):
     xp = get_array_module(X_src, X_trg, pos, neg)
     if orthogonal:
         if direction == 'forward':
@@ -44,14 +44,16 @@ def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward'
             W = xp.linalg.pinv(X_src.T.dot(X_src) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_src.T.dot(X_trg))
         elif direction == 'backward':
             W = xp.linalg.pinv(X_trg.T.dot(X_trg) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_trg.T.dot(X_src))
-    if normalize:
-        fnorm = xp.sqrt(xp.sum(W**2))
-        W *= xp.sqrt(W.shape[0]) / fnorm
-    print(xp.sum(W**2))
+
+        if spectral:
+            W = proj_spectral(W, threshold=threshold)
+        if normalize:
+            fnorm = xp.sqrt(xp.sum(W**2))
+            W *= xp.sqrt(W.shape[0]) / fnorm
     return W
 
 
-def proj_spectral(W, tanh=False, threshold=0.9):
+def proj_spectral(W, tanh=False, threshold=1.):
     xp = get_array_module(W)
     u, s, vt = xp.linalg.svd(W)
     if tanh:
@@ -91,35 +93,45 @@ def main(args):
         init_dict = xp.array(utils.BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     del src_wv, trg_wv
 
-    curr_dict = init_dict
-    W_src = W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
+    if args.load != '':
+        with open(args.load, 'rb') as fin:
+            W_src, W_trg = pickle.load(fin)
+    else:
+        W_src = W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
 
-    bdi_obj = utils.BDI(src_emb, trg_emb, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both', direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size)
+    bdi_obj = utils.BDI(src_emb, trg_emb, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
+                        direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer=args.scorer)
+    bdi_obj.project(W_src, 'forward', unit_norm=args.spectral)
+    bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral)
+    curr_dict = init_dict if args.load == '' else bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
     # self learning
     for epoch in range(args.epochs):
         # compute projection matrix
-        if args.W_source != '' and epoch == 0:
-            with open(args.W_target, 'rb') as fin:
-                W_src = W = pickle.load(fin)
-        else:
-            X_src = src_emb[curr_dict[:, 0]]
-            X_trg = trg_emb[curr_dict[:, 1]]
-            logging.info('proj error: %.4f' % xp.sum((utils.length_normalize(X_src @ W_src, False) - utils.length_normalize(X_trg @ W_trg, False))**2))
-            if epoch % 2 == 0:
-                X_trg.dot(W_trg, out=X_trg)
+        X_src = src_emb[curr_dict[:, 0]]
+        X_trg = trg_emb[curr_dict[:, 1]]
+        if epoch % 2 == 0:
+            X_trg.dot(W_trg, out=X_trg)
+            if args.spectral:
                 utils.length_normalize(X_trg, inplace=True)
-                xpos, xneg = sample_senti_vecs(src_pos, src_neg, args.senti_nsample)
-                W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'forward', args.orthogonal, args.normalize_W)
-                W_src = proj_spectral(W_src)
-                bdi_obj.project(W_src, 'forward', unit_norm=True)
-            elif epoch % 2 == 1:
-                X_src.dot(W_src, out=X_src)
-                utils.length_normalize(X_src, inplace=True)
-                xpos, xneg = sample_senti_vecs(trg_pos, trg_neg, args.senti_nsample)
-                W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'backward', args.orthogonal, False)
-                W_trg = proj_spectral(W_trg)
-                bdi_obj.project(W_trg, 'backward', unit_norm=True)
+            xpos, xneg = sample_senti_vecs(src_pos, src_neg, args.senti_nsample)
+            W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'forward', args.orthogonal, args.normalize_W, args.spectral, args.threshold)
+            logging.info('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
+            bdi_obj.project(W_src, 'forward', unit_norm=args.spectral)
+        elif epoch % 2 == 1:
+            X_src.dot(W_src, out=X_src)
+            if args.spectral:
+                utils.length_normalize(X_src, inplace=args.spectral)
+            xpos, xneg = sample_senti_vecs(trg_pos, trg_neg, args.senti_nsample)
+            W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'backward', args.orthogonal, False, args.spectral, args.threshold)
+            logging.info('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
+            bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral)
+
+        if args.spectral:
+            proj_error = xp.sum((utils.length_normalize(src_emb[gold_dict[:, 0]] @ W_src, False) - utils.length_normalize(trg_emb[gold_dict[:, 1]] @ W_trg, False))**2)
+        else:
+            proj_error = xp.sum((src_emb[gold_dict[:, 0]] @ W_src - trg_emb[gold_dict[:, 1]] @ W_trg)**2)
+        logging.info('proj error: %.4f' % proj_error)
 
 #         if epoch % 2 == 1:
         # dictionary induction
@@ -142,7 +154,7 @@ def main(args):
     if not os.path.exists('checkpoints'):
         os.mkdir('checkpoints')
     with open(args.save_path, 'wb') as fout:
-        pickle.dump(W_trg, fout)
+        pickle.dump([W_src, W_trg], fout)
 
 
 if __name__ == '__main__':
@@ -152,7 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('-sd', '--source_dataset', default='./datasets/en/opener_sents/', help='source sentiment dataset')
     parser.add_argument('-td', '--target_dataset', default='./datasets/es/opener_sents/', help='target sentiment dataset')
     parser.add_argument('-gd', '--gold_dictionary', default='./lexicons/apertium/en-es.txt', help='gold bilingual dictionary for evaluation(default: ./lexicons/apertium/en-es.txt)')
-    parser.add_argument('-W', '--W_source', type=str, default='', help='restore W_source from a file')
+    parser.add_argument('--load', type=str, default='', help='restore W_src and W_trg from a file')
     parser.add_argument('-vd', '--vector_dim', default=300, type=int, help='dimension of each word vector (default: 300)')
     parser.add_argument('-e', '--epochs', default=500, type=int, help='training epochs (default: 500)')
     parser.add_argument('-bs', '--batch_size', default=2000, type=int, help='training batch size (default: 2000)')
@@ -173,6 +185,8 @@ if __name__ == '__main__':
     mapping_group = parser.add_argument_group()
     mapping_group.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['unit', 'center', 'unit'], help='normalization actions')
     mapping_group.add_argument('--orthogonal', action='store_true', help='restrict projection matrix to be orthogonal')
+    mapping_group.add_argument('--spectral', action='store_true', help='restrict projection matrix to spectral domain')
+    mapping_group.add_argument('--threshold', type=float, default=1., help='thresholding the singular value of W')
     mapping_group.add_argument('--normalize_W', action='store_true', help='add f-norm restriction on W')
     mapping_group.add_argument('-a', '--alpha', type=float, default=0.1, help='trade-off between sentiment and alignment')
     mapping_group.add_argument('-n', '--senti_nsample', type=int, default=200, help='sentiment examples')
@@ -184,12 +198,14 @@ if __name__ == '__main__':
     induction_group.add_argument('--dropout_interval', type=int, default=30, help='increase keep_prob every m steps')
     induction_group.add_argument('--dropout_step', type=float, default=0.1, help='increase keep_prob by a small step')
     induction_group.add_argument('--direction', choices=['forward', 'backward', 'union'], default='union', help='direction of dictionary induction')
+    induction_group.add_argument('--scorer', choices=['dot', 'cos', 'euclidean'], default='dot', help='scorer for nearest neighbour retrieval')
 
     recommend_group = parser.add_mutually_exclusive_group()
     recommend_group.add_argument('-u', '--unsupervised', action='store_true', help='use recommended settings')
     recommend_group.add_argument('-s5', '--supervised5000', action='store_true', help='use supervised5000 settings')
     recommend_group.add_argument('-s1', '--supervised100', action='store_true', help='use supervised100 settings')
     recommend_group.add_argument('--senti', action='store_true', help='use unsupervised + senti settings')
+    recommend_group.add_argument('--unconstrained', action='store_true', help='use unsupervised + unconstrained settings')
 
     args = parser.parse_args()
     if args.unsupervised:
@@ -203,7 +219,10 @@ if __name__ == '__main__':
                             normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised100.csv')
     elif args.senti:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
-                            vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv')
+                            vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1.)
+    elif args.unconstrained:
+        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
+                            vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', scorer='euclidean')
 
     args = parser.parse_args()
 
