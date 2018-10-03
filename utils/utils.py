@@ -529,12 +529,14 @@ class BDI(object):
     src_emb: np.ndarray of shape (src_emb_size, vec_dim)
     trg_emb: np.ndarray of shape (trg_emb_size, vec_dim)
     batch_size: int
-    cuda: bool
+    scorer: str, (dot / cos / euclidean)
     """
 
-    def __init__(self, src_emb, trg_emb, batch_size=5000, cutoff_size=10000, cutoff_type='both', direction=None, csls=10, batch_size_val=1000):
+    def __init__(self, src_emb, trg_emb, batch_size=5000, cutoff_size=10000, cutoff_type='both', direction=None, csls=10, batch_size_val=1000, scorer='dot'):
         if cutoff_type == 'oneway' and csls > 0:
             raise ValueEror("cutoff_type='both' and csls > 0 not supported")  # TODO
+        if scorer not in ('dot', 'cos', 'euclidean'):
+            raise ValueError('Invalid scorer: %s' % scorer)
 
         xp = get_array_module(src_emb, trg_emb)
         self.xp = xp
@@ -546,6 +548,8 @@ class BDI(object):
         self.direction = direction
         self.csls = csls
         self.batch_size_val = batch_size_val
+        self.scorer = scorer
+
         self.src_proj_emb = self.src_emb[:self.cutoff_size].copy()
         self.trg_proj_emb = self.trg_emb.copy()
         self.W_src = self.W_trg = xp.identity(src_emb.shape[1], dtype=xp.float32)
@@ -568,15 +572,18 @@ class BDI(object):
         self.dict_size = cutoff_size * 2 if direction == 'union' else cutoff_size
         self.dict = xp.empty((self.dict_size, 2), dtype=xp.int32)
 
-        if csls > 0:
-            if direction in ('forward', 'union'):
-                self.fwd_knn_sim = xp.empty(self.fwd_trg_size, dtype=xp.float32)
-            if direction in ('backward', 'union'):
-                self.bwd_knn_sim = xp.empty(self.bwd_src_size, dtype=xp.float32)
+        self.trg_sqr_norm = xp.ones(self.trg_size, dtype=xp.float32)
+        self.src_sqr_norm = xp.ones(self.bwd_src_size, dtype=xp.float32)
 
-    def project(self, W, direction='backward'):
+        if direction in ('forward', 'union'):
+            self.fwd_knn_sim = xp.zeros(self.fwd_trg_size, dtype=xp.float32)
+        if direction in ('backward', 'union'):
+            self.bwd_knn_sim = xp.zeros(self.bwd_src_size, dtype=xp.float32)
+
+    def project(self, W, direction='backward', unit_norm=False):
         """
         W_target: ndarray of shape (vec_dim, vec_dim)
+        unit_norm: bool
 
         Returns: self
         """
@@ -584,9 +591,13 @@ class BDI(object):
         if direction == 'forward':
             xp.dot(self.src_emb[:self.cutoff_size], W, out=self.src_proj_emb)
             self.W_src = W.copy()
+            if unit_norm:
+                length_normalize(self.src_proj_emb, inplace=True)
         else:
             xp.dot(self.trg_emb, W, out=self.trg_proj_emb)
             self.W_trg = W.copy()
+            if unit_norm:
+                length_normalize(self.trg_proj_emb, inplace=True)
         return self
 
     def get_bilingual_dict_with_cutoff(self, keep_prob=1.):
@@ -597,26 +608,45 @@ class BDI(object):
         """
         xp = self.xp
         if self.direction in ('forward', 'union'):
+            if self.scorer in ('cos', 'euclidean'):
+                xp.sum(self.trg_proj_emb[:self.fwd_trg_size]**2, axis=1, out=self.trg_sqr_norm[:self.fwd_trg_size])
+                self.trg_sqr_norm[:self.fwd_trg_size][self.trg_sqr_norm[:self.fwd_trg_size] == 0] = 1
+
             if self.csls > 0:
                 for i in range(0, self.fwd_trg_size, self.batch_size):
                     j = min(self.fwd_trg_size, i + self.batch_size)
                     xp.dot(self.trg_proj_emb[i:j], self.src_proj_emb[:self.fwd_src_size].T, out=self.bwd_sim[:j - i])
                     self.fwd_knn_sim[i:j] = top_k_mean(self.bwd_sim[:j - i], self.csls, inplace=True)
+
             for i in range(0, self.fwd_src_size, self.batch_size):
                 j = min(self.fwd_src_size, i + self.batch_size)
                 xp.dot(self.src_proj_emb[i:j], self.trg_proj_emb[:self.fwd_trg_size].T, out=self.fwd_sim[:j - i])
                 self.fwd_sim[:j - i] -= self.fwd_knn_sim / 2
+                if self.scorer == 'cos':
+                    self.fwd_sim[:j - i] /= xp.sqrt(self.trg_sqr_norm[:self.fwd_trg_size])
+                elif self.scorer == 'euclidean':
+                    self.fwd_sim[:j - i] -= self.trg_sqr_norm[:self.fwd_trg_size]
                 dropout(self.fwd_sim[:j - i], keep_prob, inplace=True).argmax(axis=1, out=self.fwd_trg[i:j])
+
         if self.direction in ('backward', 'union'):
+            if self.scorer in ('cos', 'euclidean'):
+                xp.sum(self.src_proj_emb[:self.bwd_src_size]**2, axis=1, out=self.src_sqr_norm[:self.bwd_src_size])
+                self.src_sqr_norm[:self.bwd_src_size][self.src_sqr_norm[:self.bwd_src_size] == 0] = 1
+
             if self.csls > 0:
                 for i in range(0, self.bwd_src_size, self.batch_size):
                     j = min(self.bwd_src_size, i + self.batch_size)
                     xp.dot(self.src_proj_emb[i:j], self.trg_proj_emb[:self.bwd_trg_size].T, out=self.fwd_sim[:j - i])
                     self.bwd_knn_sim[i:j] = top_k_mean(self.fwd_sim[:j - i], self.csls, inplace=True)
+
             for i in range(0, self.bwd_trg_size, self.batch_size):
                 j = min(self.bwd_trg_size, i + self.batch_size)
                 xp.dot(self.trg_proj_emb[i:j], self.src_proj_emb[:self.bwd_src_size].T, out=self.bwd_sim[:j - i])
                 self.bwd_sim[:j - i] -= self.bwd_knn_sim / 2
+                if self.scorer == 'cos':
+                    self.bwd_sim[:j - i] /= xp.sqrt(self.src_sqr_norm[:self.bwd_src_size])
+                elif self.scorer == 'euclidean':
+                    self.bwd_sim[:j - i] -= self.src_sqr_norm[:self.bwd_src_size] / 2
                 dropout(self.bwd_sim[:j - i], keep_prob, inplace=True).argmax(axis=1, out=self.bwd_src[i:j])
         if self.direction == 'forward':
             xp.stack([self.fwd_ind, self.fwd_trg], axis=1, out=self.dict)
@@ -637,8 +667,15 @@ class BDI(object):
         size = src_ind.shape[0]
         trg_ind = xp.empty(size, dtype=xp.int32)
         xsrc = xp.dot(self.src_emb[src_ind], self.W_src)
+        if self.scorer in ('cos', 'euclidean'):
+            xp.sum(self.trg_proj_emb**2, axis=1, out=self.trg_sqr_norm)
+            self.trg_sqr_norm[self.trg_sqr_norm == 0] = 1
         for i in range(0, size, self.batch_size_val):
             j = min(i + self.batch_size_val, size)
             xp.dot(xsrc[i:j], self.trg_proj_emb.T, out=self.sim_val[: j - i])
+            if self.scorer == 'cos':
+                self.sim_val[: j - i] /= self.trg_sqr_norm
+            elif self.scorer == 'euclidean':
+                self.sim_val[: j - i] -= self.trg_sqr_norm / 2
             xp.argmax(self.sim_val[:j - i], axis=1, out=trg_ind[i:j])
         return trg_ind
