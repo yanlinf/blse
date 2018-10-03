@@ -51,6 +51,17 @@ def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward'
     return W
 
 
+def proj_spectral(W, tanh=False, threshold=0.9):
+    xp = get_array_module(W)
+    u, s, vt = xp.linalg.svd(W)
+    if tanh:
+        s = xp.tanh(s)
+    else:
+        s[s > threshold] = threshold
+        s[s < 0] = 0
+    return xp.dot(u, xp.dot(xp.diag(s), vt))
+
+
 def main(args):
     logging.info(str(args))
 
@@ -94,17 +105,21 @@ def main(args):
         else:
             X_src = src_emb[curr_dict[:, 0]]
             X_trg = trg_emb[curr_dict[:, 1]]
-            logging.info('proj error: %.4f' % xp.sum((X_src @ W_src - X_trg @ W_trg)**2))
+            logging.info('proj error: %.4f' % xp.sum((utils.length_normalize(X_src @ W_src, False) - utils.length_normalize(X_trg @ W_trg, False))**2))
             if epoch % 2 == 0:
                 X_trg.dot(W_trg, out=X_trg)
+                utils.length_normalize(X_trg, inplace=True)
                 xpos, xneg = sample_senti_vecs(src_pos, src_neg, args.senti_nsample)
                 W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'forward', args.orthogonal, args.normalize_W)
-                bdi_obj.project(W_src, 'forward')
+                W_src = proj_spectral(W_src)
+                bdi_obj.project(W_src, 'forward', unit_norm=True)
             elif epoch % 2 == 1:
                 X_src.dot(W_src, out=X_src)
+                utils.length_normalize(X_src, inplace=True)
                 xpos, xneg = sample_senti_vecs(trg_pos, trg_neg, args.senti_nsample)
                 W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'backward', args.orthogonal, False)
-                bdi_obj.project(W_trg, 'backward')
+                W_trg = proj_spectral(W_trg)
+                bdi_obj.project(W_trg, 'backward', unit_norm=True)
 
 #         if epoch % 2 == 1:
         # dictionary induction
@@ -145,7 +160,7 @@ if __name__ == '__main__':
     parser.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
     parser.add_argument('--valiadation_step', type=int, default=50, help='valiadation frequency')
     parser.add_argument('--debug', action='store_const', dest='loglevel', default=logging.INFO, const=logging.DEBUG, help='print debug info')
-    parser.add_argument('--save_path', default='./checkpoints/wtarget.bin', help='file to save the learned W_target')
+    parser.add_argument('--save_path', default='./checkpoints/senti.bin', help='file to save W_src and W_trg')
     parser.add_argument('--cuda', action='store_true', help='use cuda to accelerate')
     parser.add_argument('--log', default='./log/init100.csv', type=str, help='file to print log')
     parser.add_argument('--plot', action='store_true', help='plot results')
