@@ -154,7 +154,7 @@ def main(args):
     if not os.path.exists('checkpoints'):
         os.mkdir('checkpoints')
     with open(args.save_path, 'wb') as fout:
-        pickle.dump([W_src, W_trg], fout)
+        pickle.dump([asnumpy(W_src), asnumpy(W_trg)], fout)
 
 
 if __name__ == '__main__':
