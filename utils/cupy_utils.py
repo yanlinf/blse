@@ -15,3 +15,10 @@ def get_array_module(*args, **kwargs):
         return cupy.get_array_module(*args, **kwargs)
     else:
         return numpy
+
+
+def asnumpy(x):
+    if cupy is not None:
+        return cupy.asnumpy(x)
+    else:
+        return numpy.asarray(x)
