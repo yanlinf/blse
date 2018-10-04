@@ -580,12 +580,17 @@ class BDI(object):
         self.trg_sqr_norm = xp.ones(self.trg_size, dtype=xp.float32)
         self.src_sqr_norm = xp.ones(self.bwd_src_size, dtype=xp.float32)
 
+        self.src_avr_norm = xp.mean(xp.sqrt(xp.sum(self.src_emb[:self.cutoff_size]**2, axis=1)))
+        self.trg_avr_norm = xp.mean(xp.sqrt(xp.sum(self.trg_emb[:self.cutoff_size]**2, axis=1)))
+        self.src_factor = 1
+        self.trg_factor = 1
+
         if direction in ('forward', 'union'):
             self.fwd_knn_sim = xp.zeros(self.fwd_trg_size, dtype=xp.float32)
         if direction in ('backward', 'union'):
             self.bwd_knn_sim = xp.zeros(self.bwd_src_size, dtype=xp.float32)
 
-    def project(self, W, direction='backward', unit_norm=False):
+    def project(self, W, direction='backward', unit_norm=False, scale=False):
         """
         W_target: ndarray of shape (vec_dim, vec_dim)
         unit_norm: bool
@@ -598,11 +603,19 @@ class BDI(object):
             self.W_src = W.copy()
             if unit_norm:
                 length_normalize(self.src_proj_emb, inplace=True)
+            if scale:
+                avr_norm = xp.mean(xp.sqrt(xp.sum(self.src_proj_emb[:self.cutoff_size]**2, axis=1)))
+                self.src_factor = self.src_avr_norm / avr_norm
+                self.src_proj_emb *= self.src_factor
         else:
             xp.dot(self.trg_emb, W, out=self.trg_proj_emb)
             self.W_trg = W.copy()
             if unit_norm:
                 length_normalize(self.trg_proj_emb, inplace=True)
+            if scale:
+                avr_norm = xp.mean(xp.sqrt(xp.sum(self.trg_proj_emb[:self.cutoff_size]**2, axis=1)))
+                self.trg_factor = self.trg_avr_norm / avr_norm
+                self.trg_proj_emb *= self.trg_factor
         return self
 
     def get_bilingual_dict_with_cutoff(self, keep_prob=1.):
