@@ -435,13 +435,13 @@ class SentimentDataset(object):
         self.dev = load(os.path.join(directory, 'dev'))
         self.test = load(os.path.join(directory, 'test'))
 
-    def to_index(self, wordvecs):
+    def to_index(self, wordvecs, binary=False):
         """
         wordvecs: WordVecs object
 
         Returns: self
         """
-        def sents2index(X, y):
+        def sents2index(X, y, binary):
             X_new = []
             for sent in X:
                 sent_new = []
@@ -451,31 +451,36 @@ class SentimentDataset(object):
                     except KeyError:
                         continue
                 X_new.append(sent_new)
+            if binary:
+                y = (y >= 2).astype(np.int32)
             return X_new, y
 
-        self.train = sents2index(*self.train)
-        self.dev = sents2index(*self.dev)
-        self.test = sents2index(*self.test)
+        self.train = sents2index(*self.train, binary=binary)
+        self.dev = sents2index(*self.dev, binary=binary)
+        self.test = sents2index(*self.test, binary=binary)
         return self
 
-    def to_vecs(self, emb):
+    def to_vecs(self, emb, shuffle=False):
         """
         emb: ndarray of shape (vocab_size, vec_dim)
 
         Returns: self
         """
-        def ind2vec(X, y):
+        def ind2vec(X, y, shuffle):
             size = len(X)
             vec_dim = emb.shape[1]
             X_new = np.zeros((size, vec_dim), dtype=np.float32)
             for i, row in enumerate(X):
                 if len(row) > 0:
                     X_new[i] = np.mean(emb[row], axis=0)
+            if shuffle:
+                perm = np.random.permutation(X_new.shape[0])
+                X_new, y = X_new[perm], y[perm]
             return X_new, y
 
-        self.train = ind2vec(*self.train)
-        self.dev = ind2vec(*self.dev)
-        self.test = ind2vec(*self.test)
+        self.train = ind2vec(*self.train, shuffle=shuffle)
+        self.dev = ind2vec(*self.dev, shuffle=shuffle)
+        self.test = ind2vec(*self.test, shuffle=shuffle)
         return self
 
 
