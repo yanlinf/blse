@@ -96,6 +96,8 @@ def main(args):
     if args.load != '':
         with open(args.load, 'rb') as fin:
             W_src, W_trg = pickle.load(fin)
+        W_src = xp.array(W_src)
+        W_trg = xp.array(W_trg)
     else:
         W_src = W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
 
@@ -117,7 +119,9 @@ def main(args):
             xpos, xneg = sample_senti_vecs(src_pos, src_neg, args.senti_nsample)
             W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'forward', args.orthogonal, args.normalize_W, args.spectral, args.threshold)
             logging.info('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
-            bdi_obj.project(W_src, 'forward', unit_norm=args.spectral)
+            bdi_obj.project(W_src, 'forward', unit_norm=args.spectral or args.test, scale=args.scale)
+            if args.scale:
+                W_src *= bdi_obj.src_factor
         elif epoch % 2 == 1:
             X_src.dot(W_src, out=X_src)
             if args.spectral:
@@ -125,10 +129,14 @@ def main(args):
             xpos, xneg = sample_senti_vecs(trg_pos, trg_neg, args.senti_nsample)
             W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'backward', args.orthogonal, False, args.spectral, args.threshold)
             logging.info('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
-            bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral)
+            bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral or args.test, scale=args.scale)
+            if args.scale:
+                W_trg *= bdi_obj.trg_factor
 
-        if args.spectral:
+        if args.spectral or args.test:
             proj_error = xp.sum((utils.length_normalize(src_emb[gold_dict[:, 0]] @ W_src, False) - utils.length_normalize(trg_emb[gold_dict[:, 1]] @ W_trg, False))**2)
+#         elif args.scale:
+#             proj_error = xp.sum(((src_emb[gold_dict[:, 0]] @ W_src) * bdi_obj.src_factor - (trg_emb[gold_dict[:, 1]] @ W_trg) * bdi_obj.trg_factor)**2)
         else:
             proj_error = xp.sum((src_emb[gold_dict[:, 0]] @ W_src - trg_emb[gold_dict[:, 1]] @ W_trg)**2)
         logging.info('proj error: %.4f' % proj_error)
@@ -136,6 +144,14 @@ def main(args):
 #         if epoch % 2 == 1:
         # dictionary induction
         curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
+        
+        if args.test:
+            if epoch % 2 == 0:
+                W_src = proj_spectral(W_src)
+                bdi_obj.project(W_src, 'forward', unit_norm=True)
+            else:
+                W_trg = proj_spectral(W_trg)
+                bdi_obj.project(W_trg, 'backward', unit_norm=True)
 
         # update keep_prob
         if (epoch + 1) % (args.dropout_interval * 2) == 0:
@@ -186,6 +202,7 @@ if __name__ == '__main__':
     mapping_group.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['unit', 'center', 'unit'], help='normalization actions')
     mapping_group.add_argument('--orthogonal', action='store_true', help='restrict projection matrix to be orthogonal')
     mapping_group.add_argument('--spectral', action='store_true', help='restrict projection matrix to spectral domain')
+    mapping_group.add_argument('--scale', action='store_true', help='scale embedding after projecting')
     mapping_group.add_argument('--threshold', type=float, default=1., help='thresholding the singular value of W')
     mapping_group.add_argument('--normalize_W', action='store_true', help='add f-norm restriction on W')
     mapping_group.add_argument('-a', '--alpha', type=float, default=0.1, help='trade-off between sentiment and alignment')
@@ -205,6 +222,7 @@ if __name__ == '__main__':
     recommend_group.add_argument('-s5', '--supervised5000', action='store_true', help='use supervised5000 settings')
     recommend_group.add_argument('-s1', '--supervised100', action='store_true', help='use supervised100 settings')
     recommend_group.add_argument('--senti', action='store_true', help='use unsupervised + senti settings')
+    recommend_group.add_argument('--test', action='store_true', help='use unsupervised + senti settings')
     recommend_group.add_argument('--unconstrained', action='store_true', help='use unsupervised + unconstrained settings')
 
     args = parser.parse_args()
@@ -220,9 +238,12 @@ if __name__ == '__main__':
     elif args.senti:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1.)
+    elif args.test:
+        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
+                            vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', spectral=False, threshold=1.)
     elif args.unconstrained:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
-                            vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', scorer='euclidean')
+                            vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', scorer='euclidean', scale=True)
 
     args = parser.parse_args()
 
