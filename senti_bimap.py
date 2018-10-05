@@ -89,6 +89,9 @@ def main(args):
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
     elif args.init_unsupervised:
         init_dict = utils.get_unsupervised_init_dict(src_emb, trg_emb, args.vocab_cutoff, args.csls, args.normalize, args.direction)
+    elif args.init_random:
+        size = args.vocab_cutoff * 2 if args.direction == 'both' else args.vocab_cutoff
+        init_dict = xp.stack((xp.arange(size), xp.random.permutation(size)), axis=1)
     else:
         init_dict = xp.array(utils.BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     del src_wv, trg_wv
@@ -133,18 +136,16 @@ def main(args):
             if args.scale:
                 W_trg *= bdi_obj.trg_factor
 
-        if args.spectral or args.test:
-            proj_error = xp.sum((utils.length_normalize(src_emb[gold_dict[:, 0]] @ W_src, False) - utils.length_normalize(trg_emb[gold_dict[:, 1]] @ W_trg, False))**2)
-#         elif args.scale:
-#             proj_error = xp.sum(((src_emb[gold_dict[:, 0]] @ W_src) * bdi_obj.src_factor - (trg_emb[gold_dict[:, 1]] @ W_trg) * bdi_obj.trg_factor)**2)
-        else:
-            proj_error = xp.sum((src_emb[gold_dict[:, 0]] @ W_src - trg_emb[gold_dict[:, 1]] @ W_trg)**2)
-        logging.info('proj error: %.4f' % proj_error)
+        if not args.no_proj_error:
+            if args.spectral or args.test:
+                proj_error = xp.sum((utils.length_normalize(src_emb[gold_dict[:, 0]] @ W_src, False) - utils.length_normalize(trg_emb[gold_dict[:, 1]] @ W_trg, False))**2)
+            else:
+                proj_error = xp.sum((src_emb[gold_dict[:, 0]] @ W_src - trg_emb[gold_dict[:, 1]] @ W_trg)**2)
+            logging.info('proj error: %.4f' % proj_error)
 
-#         if epoch % 2 == 1:
         # dictionary induction
         curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
-        
+
         if args.test:
             if epoch % 2 == 0:
                 W_src = proj_spectral(W_src)
@@ -186,6 +187,7 @@ if __name__ == '__main__':
     parser.add_argument('-bs', '--batch_size', default=2000, type=int, help='training batch size (default: 2000)')
     parser.add_argument('-vbs', '--val_batch_size', default=500, type=int, help='training batch size (default: 500)')
     parser.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
+    parser.add_argument('--no_proj_error', action='store_true', help='disable proj error monitoring')
     parser.add_argument('--valiadation_step', type=int, default=50, help='valiadation frequency')
     parser.add_argument('--debug', action='store_const', dest='loglevel', default=logging.INFO, const=logging.DEBUG, help='print debug info')
     parser.add_argument('--save_path', default='./checkpoints/senti.bin', help='file to save W_src and W_trg')
@@ -196,10 +198,11 @@ if __name__ == '__main__':
     init_group = parser.add_mutually_exclusive_group()
     init_group.add_argument('-d', '--init_dictionary', default='./init_dict/init100.txt', help='bilingual dictionary for learning bilingual mapping (default: ./init_dict/init100.txt)')
     init_group.add_argument('--init_num', action='store_true', help='use numerals as initial dictionary')
+    init_group.add_argument('--init_random', action='store_true', help='use random initial dictionary')
     init_group.add_argument('--init_unsupervised', action='store_true', help='use unsupervised init')
 
     mapping_group = parser.add_argument_group()
-    mapping_group.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['unit', 'center', 'unit'], help='normalization actions')
+    mapping_group.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['center', 'unit'], help='normalization actions')
     mapping_group.add_argument('--orthogonal', action='store_true', help='restrict projection matrix to be orthogonal')
     mapping_group.add_argument('--spectral', action='store_true', help='restrict projection matrix to spectral domain')
     mapping_group.add_argument('--scale', action='store_true', help='scale embedding after projecting')
