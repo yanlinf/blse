@@ -11,7 +11,6 @@ from utils.cupy_utils import *
 
 def sample_senti_vecs(xpos, xneg, num_sample):
     xp = get_array_module(xpos, xneg)
-    return xp.zeros((num_sample, xpos.shape[1]), dtype=xp.float32), xp.zeros((num_sample, xpos.shape[1]), dtype=xp.float32)
     if xp == np:
         xpos = xp.random.permutation(xpos)
         xneg = xp.random.permutation(xneg)
