@@ -30,15 +30,34 @@ def get_pos_neg_vecs(X, y):
     return xpos, xneg
 
 
-def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward', orthogonal=False, normalize=False, spectral=False, threshold=1.):
+def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward', orthogonal=False, normalize=False, spectral=False, threshold=1., learning_rate=0):
     xp = get_array_module(X_src, X_trg, pos, neg)
     if orthogonal:
         if direction == 'forward':
             u, s, vt = xp.linalg.svd(xp.dot(X_trg.T, X_src))
             W = xp.dot(vt.T, u.T)
-        if direction == 'backward':
+        elif direction == 'backward':
             u, s, vt = xp.linalg.svd(xp.dot(X_src.T, X_trg))
             W = xp.dot(vt.T, u.T)
+    elif spectral and learning_rate > 0:
+        if direction == 'forward':
+            W = xp.linalg.pinv(X_src.T.dot(X_src) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_src.T.dot(X_trg))
+            W = proj_spectral(W)
+            for i in range(3):
+                loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_src.dot(W) - X_trg)
+                logging.info('loss: %.4f' % loss)
+                grad = 2 * (-alpha * (pos - neg).T.dot(pos - neg) + X_src.T.dot(X_src)).dot(W) - 2 * X_src.T.dot(X_trg)
+                W -= learning_rate * grad
+                W = proj_spectral(W)
+        elif direction == 'backward':
+            W = xp.linalg.pinv(X_trg.T.dot(X_trg) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_trg.T.dot(X_src))
+            W = proj_spectral(W)
+            for i in range(3):
+                loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_trg.dot(W) - X_src)
+                logging.info('loss: %.4f' % loss)
+                grad = 2 * (-alpha * (pos - neg).T.dot(pos - neg) + X_trg.T.dot(X_trg)).dot(W) - 2 * X_trg.T.dot(X_src)
+                W -= learning_rate * grad
+                W = proj_spectral(W)
     else:
         if direction == 'forward':
             W = xp.linalg.pinv(X_src.T.dot(X_src) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_src.T.dot(X_trg))
@@ -120,7 +139,7 @@ def main(args):
             if args.spectral:
                 utils.length_normalize(X_trg, inplace=True)
             xpos, xneg = sample_senti_vecs(src_pos, src_neg, args.senti_nsample)
-            W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'forward', args.orthogonal, args.normalize_W, args.spectral, args.threshold)
+            W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'forward', args.orthogonal, args.normalize_W, args.spectral, args.threshold, learning_rate=args.learning_rate)
             logging.info('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
             bdi_obj.project(W_src, 'forward', unit_norm=args.spectral or args.test, scale=args.scale)
             if args.scale:
@@ -130,7 +149,7 @@ def main(args):
             if args.spectral:
                 utils.length_normalize(X_src, inplace=args.spectral)
             xpos, xneg = sample_senti_vecs(trg_pos, trg_neg, args.senti_nsample)
-            W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'backward', args.orthogonal, False, args.spectral, args.threshold)
+            W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'backward', args.orthogonal, False, args.spectral, args.threshold, learning_rate=args.learning_rate)
             logging.info('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
             bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral or args.test, scale=args.scale)
             if args.scale:
@@ -205,6 +224,7 @@ if __name__ == '__main__':
     mapping_group.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['center', 'unit'], help='normalization actions')
     mapping_group.add_argument('--orthogonal', action='store_true', help='restrict projection matrix to be orthogonal')
     mapping_group.add_argument('--spectral', action='store_true', help='restrict projection matrix to spectral domain')
+    mapping_group.add_argument('-lr', '--learning_rate', type=float, default=0, help='use gradient descent to solve W')
     mapping_group.add_argument('--scale', action='store_true', help='scale embedding after projecting')
     mapping_group.add_argument('--threshold', type=float, default=1., help='thresholding the singular value of W')
     mapping_group.add_argument('--normalize_W', action='store_true', help='add f-norm restriction on W')
