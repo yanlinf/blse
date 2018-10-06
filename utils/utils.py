@@ -134,7 +134,7 @@ def get_projection_matrix(X_src, X_trg, orthogonal, direction='forward', out=Non
     return W
 
 
-def get_unsupervised_init_dict(src_emb, trg_emb, cutoff_size, csls, norm_actions, direction):
+def get_unsupervised_init_dict(src_emb, trg_emb, cutoff_size, csls, norm_actions, direction, threshold=-float('inf')):
     """
     Given source embedding and target embedding, return a initial bilingual
     dictionary base on similarity distribution.
@@ -145,6 +145,7 @@ def get_unsupervised_init_dict(src_emb, trg_emb, cutoff_size, csls, norm_actions
     csls: int
     norm_actions: list[str]
     direction: str
+    threshold: float
 
     Returns: ndarray of shape (dict_size, 2)
     """
@@ -166,12 +167,16 @@ def get_unsupervised_init_dict(src_emb, trg_emb, cutoff_size, csls, norm_actions
     trg_knn_sim = top_k_mean(sim.T, csls, inplace=False)
     sim -= src_knn_sim[:, xp.newaxis] / 2 + trg_knn_sim / 2
 
+    fwd_valid = xp.max(sim, axis=1) > threshold
+    bwd_valid = xp.max(sim, axis=0)  > threshold
+
     if direction == 'forward':
-        init_dict = xp.stack([xp.arange(sim_size), xp.argmax(sim, axis=1)], axis=1)
+        init_dict = xp.stack([xp.arange(sim_size), xp.argmax(sim, axis=1)], axis=1)[fwd_valid]
     elif direction == 'backward':
-        init_dict = xp.stack([xp.argmax(sim, axis=0), xp.arange(sim_size)], axis=1)
+        init_dict = xp.stack([xp.argmax(sim, axis=0), xp.arange(sim_size)], axis=1)[bwd_valid]
     elif direction == 'union':
-        init_dict = xp.stack([xp.concatenate((xp.arange(sim_size), xp.argmax(sim, axis=0))), xp.concatenate((xp.argmax(sim, axis=1), xp.arange(sim_size)))], axis=1)
+        init_dict = xp.stack([xp.concatenate((xp.arange(sim_size)[fwd_valid], xp.argmax(sim, axis=0)[bwd_valid])), xp.concatenate((xp.argmax(sim, axis=1)[fwd_valid], xp.arange(sim_size)[bwd_valid]))], axis=1)
+    print(init_dict.shape)
     return init_dict
 
 
