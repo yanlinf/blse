@@ -42,18 +42,28 @@ def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward'
         if direction == 'forward':
             W = xp.linalg.pinv(X_src.T.dot(X_src) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_src.T.dot(X_trg))
             W = proj_spectral(W)
-            for i in range(3):
+            prev_loss = float('inf')
+            for i in range(20):
                 loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_src.dot(W) - X_trg)
                 logging.info('loss: %.4f' % loss)
+                if prev_loss - loss < 0.02:
+                    break
+                else:
+                    prev_loss = loss
                 grad = 2 * (-alpha * (pos - neg).T.dot(pos - neg) + X_src.T.dot(X_src)).dot(W) - 2 * X_src.T.dot(X_trg)
                 W -= learning_rate * grad
                 W = proj_spectral(W)
         elif direction == 'backward':
             W = xp.linalg.pinv(X_trg.T.dot(X_trg) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_trg.T.dot(X_src))
             W = proj_spectral(W)
-            for i in range(3):
+            prev_loss = float('inf')
+            for i in range(20):
                 loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_trg.dot(W) - X_src)
                 logging.info('loss: %.4f' % loss)
+                if prev_loss - loss < 0.02:
+                    break
+                else:
+                    prev_loss = loss
                 grad = 2 * (-alpha * (pos - neg).T.dot(pos - neg) + X_trg.T.dot(X_trg)).dot(W) - 2 * X_trg.T.dot(X_src)
                 W -= learning_rate * grad
                 W = proj_spectral(W)
@@ -130,6 +140,8 @@ def main(args):
 
     # self learning
     for epoch in range(args.epochs):
+        logging.info('running epoch %d...' % epoch)
+
         # compute projection matrix
         X_src = src_emb[curr_dict[:, 0]]
         X_trg = trg_emb[curr_dict[:, 1]]
