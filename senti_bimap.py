@@ -280,7 +280,7 @@ if __name__ == '__main__':
     elif args.senti:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=10, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1., 
-                            learning_rate=0.003, alpha_init=0.1, alpha_factor=1.01)
+                            learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=True)
     elif args.test:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', spectral=False, threshold=1.)
