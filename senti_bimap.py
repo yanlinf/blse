@@ -45,7 +45,7 @@ def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward'
             prev_loss = float('inf')
             for i in range(20):
                 loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_src.dot(W) - X_trg)
-                logging.info('loss: %.4f' % loss)
+                logging.debug('loss: %.4f' % loss)
                 if prev_loss - loss < 0.02:
                     break
                 else:
@@ -59,7 +59,7 @@ def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward'
             prev_loss = float('inf')
             for i in range(20):
                 loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_trg.dot(W) - X_src)
-                logging.info('loss: %.4f' % loss)
+                logging.debug('loss: %.4f' % loss)
                 if prev_loss - loss < 0.02:
                     break
                 else:
@@ -112,6 +112,7 @@ def main(args):
     trg_pos, trg_neg = get_pos_neg_vecs(xp.array(trg_ds.train[0]), xp.array(trg_ds.train[1]))
     gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     keep_prob = args.dropout_init
+    alpha = args.alpha_init
 
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
@@ -140,7 +141,7 @@ def main(args):
 
     # self learning
     for epoch in range(args.epochs):
-        logging.info('running epoch %d...' % epoch)
+        logging.debug('running epoch %d...' % epoch)
 
         # compute projection matrix
         X_src = src_emb[curr_dict[:, 0]]
@@ -150,8 +151,8 @@ def main(args):
             if args.spectral:
                 utils.length_normalize(X_trg, inplace=True)
             xpos, xneg = sample_senti_vecs(src_pos, src_neg, args.senti_nsample)
-            W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'forward', args.orthogonal, args.normalize_W, args.spectral, args.threshold, learning_rate=args.learning_rate)
-            logging.info('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
+            W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, alpha, 'forward', args.orthogonal, args.normalize_W, args.spectral, args.threshold, learning_rate=args.learning_rate)
+            logging.debug('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
             bdi_obj.project(W_src, 'forward', unit_norm=args.spectral or args.test, scale=args.scale)
             if args.scale:
                 W_src *= bdi_obj.src_factor
@@ -160,8 +161,8 @@ def main(args):
             if args.spectral:
                 utils.length_normalize(X_src, inplace=args.spectral)
             xpos, xneg = sample_senti_vecs(trg_pos, trg_neg, args.senti_nsample)
-            W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, args.alpha, 'backward', args.orthogonal, False, args.spectral, args.threshold, learning_rate=args.learning_rate)
-            logging.info('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
+            W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, alpha, 'backward', args.orthogonal, False, args.spectral, args.threshold, learning_rate=args.learning_rate)
+            logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
             bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral or args.test, scale=args.scale)
             if args.scale:
                 W_trg *= bdi_obj.trg_factor
@@ -187,6 +188,9 @@ def main(args):
         # update keep_prob
         if (epoch + 1) % (args.dropout_interval * 2) == 0:
             keep_prob = min(1., keep_prob + args.dropout_step)
+
+        # update alpha
+        alpha = min(args.alpha_factor * alpha, args.alpha)
 
         # valiadation
         if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
@@ -239,8 +243,12 @@ if __name__ == '__main__':
     mapping_group.add_argument('--scale', action='store_true', help='scale embedding after projecting')
     mapping_group.add_argument('--threshold', type=float, default=1., help='thresholding the singular value of W')
     mapping_group.add_argument('--normalize_W', action='store_true', help='add f-norm restriction on W')
-    mapping_group.add_argument('-a', '--alpha', type=float, default=0.1, help='trade-off between sentiment and alignment')
     mapping_group.add_argument('-n', '--senti_nsample', type=int, default=200, help='sentiment examples')
+
+    alpha_group = parser.add_argument_group()
+    alpha_group.add_argument('-a', '--alpha', type=float, default=0.1, help='trade-off between sentiment and alignment')
+    alpha_group.add_argument('--alpha_init', type=float, default=0.1, help='initial value of alpha')
+    alpha_group.add_argument('--alpha_factor', type=float, default=1.01, help='multiply alpha by a factor each epoch')
 
     induction_group = parser.add_argument_group()
     induction_group.add_argument('-vc', '--vocab_cutoff', default=10000, type=int, help='restrict the vocabulary to k most frequent words')
@@ -271,7 +279,8 @@ if __name__ == '__main__':
                             normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised100.csv')
     elif args.senti:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
-                            vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1.)
+                            vocab_cutoff=10000, alpha=10, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1., 
+                            learning_rate=0.003, alpha_init=0.1, alpha_factor=1.01)
     elif args.test:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', spectral=False, threshold=1.)
