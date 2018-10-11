@@ -54,7 +54,7 @@ if __name__ == '__main__':
                         default=['checkpoints/senti.bin'],
                         help='W_src and W_trg')
     parser.add_argument('--format',
-                        choices=['word2vec_binary', 'fasttext_text'],
+                        choices=['word2vec_bin', 'fasttext_text'],
                         default='fasttext_text',
                         help='word embedding format')
     parser.add_argument('-bi', '--binary',
