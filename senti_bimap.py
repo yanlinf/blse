@@ -114,6 +114,8 @@ def main(args):
     keep_prob = args.dropout_init
     alpha = args.alpha_init
 
+    logging.debug('gold dict shape' + str(gold_dict.shape))
+
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
     elif args.init_unsupervised:
@@ -142,6 +144,7 @@ def main(args):
     # self learning
     for epoch in range(args.epochs):
         logging.debug('running epoch %d...' % epoch)
+        logging.debug('alhpa: %.4f' % alpha)
 
         # compute projection matrix
         X_src = src_emb[curr_dict[:, 0]]
@@ -218,8 +221,8 @@ if __name__ == '__main__':
     parser.add_argument('--load', type=str, default='', help='restore W_src and W_trg from a file')
     parser.add_argument('-vd', '--vector_dim', default=300, type=int, help='dimension of each word vector (default: 300)')
     parser.add_argument('-e', '--epochs', default=500, type=int, help='training epochs (default: 500)')
-    parser.add_argument('-bs', '--batch_size', default=2000, type=int, help='training batch size (default: 2000)')
-    parser.add_argument('-vbs', '--val_batch_size', default=500, type=int, help='training batch size (default: 500)')
+    parser.add_argument('-bs', '--batch_size', default=5000, type=int, help='training batch size (default: 5000)')
+    parser.add_argument('-vbs', '--val_batch_size', default=1000, type=int, help='training batch size (default: 1000)')
     parser.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
     parser.add_argument('--no_proj_error', action='store_true', help='disable proj error monitoring')
     parser.add_argument('--valiadation_step', type=int, default=50, help='valiadation frequency')
@@ -280,7 +283,7 @@ if __name__ == '__main__':
     elif args.senti:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=10, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1., 
-                            learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=True)
+                            learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01)
     elif args.test:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', spectral=False, threshold=1.)
