@@ -16,8 +16,8 @@ from utils.cupy_utils import *
 def main(args):
     logging.info(str(args))
 
-    src_wv = utils.WordVecs(args.source_embedding).normalize(args.normalize)
-    trg_wv = utils.WordVecs(args.target_embedding).normalize(args.normalize)
+    src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+    trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
     src_proj_emb = np.empty(src_wv.embedding.shape, dtype=np.float32)
     trg_proj_emb = np.empty(trg_wv.embedding.shape, dtype=np.float32)
 
@@ -53,6 +53,10 @@ if __name__ == '__main__':
                         nargs='+',
                         default=['checkpoints/senti.bin'],
                         help='W_src and W_trg')
+    parser.add_argument('--format',
+                        choices=['word2vec_binary', 'fasttext_text'],
+                        default='fasttext_text',
+                        help='word embedding format')
     parser.add_argument('-bi', '--binary',
                         action='store_true',
                         help='use 2-class set up')
