@@ -13,7 +13,7 @@ import os
 from .cupy_utils import *
 
 
-NORM_BATCH_SIZE = 500000
+NORM_BATCH_SIZE = 200000
 
 
 def l2norm(X):
@@ -306,7 +306,7 @@ class WordVecs(object):
             w2idx = {}
 
             for line in fin:
-                word, vec = fin.readline().split(' ', 1)
+                word, vec = line.split(' ', 1)
                 vec = np.fromstring(vec, sep=' ', dtype=np.float32)
                 if vocab is not None and word not in vocab:
                     continue
@@ -654,7 +654,7 @@ class BDI(object):
         if direction in ('backward', 'union'):
             self.bwd_knn_sim = xp.zeros(self.bwd_src_size, dtype=xp.float32)
 
-    def project(self, W, direction='backward', unit_norm=False, scale=False):
+    def project(self, W, direction='backward', unit_norm=False, scale=False, full_trg=False):
         """
         W_target: ndarray of shape (vec_dim, vec_dim)
         unit_norm: bool
@@ -672,14 +672,15 @@ class BDI(object):
                 self.src_factor = self.src_avr_norm / avr_norm
                 self.src_proj_emb *= self.src_factor
         else:
-            xp.dot(self.trg_emb, W, out=self.trg_proj_emb)
+            proj_size = self.trg_size if full_trg else self.cutoff_size
+            xp.dot(self.trg_emb[:proj_size], W, out=self.trg_proj_emb[:proj_size])
             self.W_trg = W.copy()
             if unit_norm:
-                length_normalize(self.trg_proj_emb, inplace=True)
+                length_normalize(self.trg_proj_emb[:proj_size], inplace=True)
             if scale:
                 avr_norm = xp.mean(l2norm(self.trg_proj_emb[:self.cutoff_size]))
                 self.trg_factor = self.trg_avr_norm / avr_norm
-                self.trg_proj_emb *= self.trg_factor
+                self.trg_proj_emb[:proj_size] *= self.trg_factor
         return self
 
     def get_bilingual_dict_with_cutoff(self, keep_prob=1.):
