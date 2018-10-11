@@ -13,6 +13,26 @@ import os
 from .cupy_utils import *
 
 
+NORM_BATCH_SIZE = 500000
+
+
+def l2norm(X):
+    """
+    equivalent to np.linalg.norm
+
+    X: ndarray of rank 2
+
+    returns: ndarray of shape (X.shape[0],)
+    """
+    xp = get_array_module(X)
+    xsize = X.shape[0]
+    norms = xp.zeros(xsize, dtype=xp.float32)
+    for i in range(0, xsize, NORM_BATCH_SIZE):
+        j = min(xsize, i + NORM_BATCH_SIZE)
+        norms[i:j] = xp.linalg.norm(X[i:j], axis=1)
+    return norms
+
+
 def length_normalize(X, inplace=True):
     """
     Normalize rows of X to unit length.
@@ -23,7 +43,8 @@ def length_normalize(X, inplace=True):
     Returns: None or np.ndarray (or cupy.ndarray)
     """
     xp = get_array_module(X)
-    norms = xp.sqrt(xp.sum(X**2, axis=1))
+
+    norms = l2norm(X)
     norms[norms == 0.] = 1.
     if inplace:
         X /= norms[:, xp.newaxis]
@@ -168,21 +189,21 @@ def get_unsupervised_init_dict(src_emb, trg_emb, cutoff_size, csls, norm_actions
     sim -= src_knn_sim[:, xp.newaxis] / 2 + trg_knn_sim / 2
 
     fwd_valid = xp.max(sim, axis=1) > threshold
-    bwd_valid = xp.max(sim, axis=0)  > threshold
+    bwd_valid = xp.max(sim, axis=0) > threshold
 
     if direction == 'forward':
         init_dict = xp.stack([xp.arange(sim_size), xp.argmax(sim, axis=1)], axis=1)[fwd_valid]
     elif direction == 'backward':
         init_dict = xp.stack([xp.argmax(sim, axis=0), xp.arange(sim_size)], axis=1)[bwd_valid]
     elif direction == 'union':
-        init_dict = xp.stack([xp.concatenate((xp.arange(sim_size)[fwd_valid], xp.argmax(sim, axis=0)[bwd_valid])), xp.concatenate((xp.argmax(sim, axis=1)[fwd_valid], xp.arange(sim_size)[bwd_valid]))], axis=1)
-    print(init_dict.shape)
+        init_dict = xp.stack([xp.concatenate((xp.arange(sim_size)[fwd_valid], xp.argmax(sim, axis=0)[bwd_valid])),
+                              xp.concatenate((xp.argmax(sim, axis=1)[fwd_valid], xp.arange(sim_size)[bwd_valid]))], axis=1)
     return init_dict
 
 
 class WordVecs(object):
     """
-    Helper class for importing word embeddings in BINARY Word2Vec format.
+    Helper class for importing word embeddings in BINARY Word2Vec format / fasttext format.
 
     Parameters
     ----------
@@ -194,13 +215,21 @@ class WordVecs(object):
         specify the encoding with which to decode the bytes
     normalize: bool
         mean center the word vectors and normalize to unit length
+    format: 
     """
 
-    def __init__(self, file, vocab=None, encoding='utf-8', normalize=False):
+    def __init__(self, file, vocab=None, encoding='utf-8', normalize=False, emb_format='word2vec_bin'):
         self.vocab = set(vocab) if vocab else None
         self.encoding = encoding
-        self.vocab_size, self.vec_dim, self._matrix, self._w2idx, self._idx2w = self._read_vecs(
-            file)
+        self.emb_format = emb_format
+        if emb_format == 'word2vec_bin':
+            self.vocab_size, self.vec_dim, self._matrix, self._w2idx, self._idx2w = self._read_word2vec_vecs(
+                file)
+        elif emb_format == 'fasttext_text':
+            self.vocab_size, self.vec_dim, self._matrix, self._w2idx, self._idx2w = self._read_fasttext_vecs(
+                file, encoding=encoding, vocab=vocab)
+        else:
+            raise ValueError('Invalid embedding format: {0}'.format(emb_format))
         self.vocab = set(self._w2idx.keys())
         if normalize:
             self.mean_center().normalize()
@@ -218,7 +247,7 @@ class WordVecs(object):
         except KeyError:
             raise KeyError('Word not in vocabulary')
 
-    def _read_vecs(self, file):
+    def _read_word2vec_vecs(self, file):
         """
         Load word embeddings from the binary embedding file.
 
@@ -258,6 +287,36 @@ class WordVecs(object):
         for w, i in w2idx.items():
             idx2w[i] = w
         idx2w = np.array(idx2w)
+        return vocab_size, vec_dim, emb_matrix, w2idx, idx2w
+
+    def _read_fasttext_vecs(self, file, encoding, vocab=None):
+        """
+        Load word embeddings from the binary embedding file.
+
+        file: str
+        """
+        with open(file, 'r', encoding=encoding) as fin:
+            vocab_size, vec_dim = map(int, fin.readline().split())
+
+            if vocab is not None:
+                vocab_size = len(self.vocab)
+
+            emb_matrix = np.zeros((vocab_size, vec_dim), dtype=np.float32)
+            idx2w = []
+            w2idx = {}
+
+            for line in fin:
+                word, vec = fin.readline().split(' ', 1)
+                vec = np.fromstring(vec, sep=' ', dtype=np.float32)
+                if vocab is not None and word not in vocab:
+                    continue
+
+                word_id = len(idx2w)
+                w2idx[word] = word_id
+                idx2w.append(word)
+                emb_matrix[word_id] = vec
+
+            idx2w = np.array(idx2w)
         return vocab_size, vec_dim, emb_matrix, w2idx, idx2w
 
     def add_word(self, word, vec):
@@ -338,7 +397,7 @@ class WordVecs(object):
 
     def normalize(self, actions=None):
         if actions is None:
-            norms = np.sqrt(np.sum(self._matrix**2, axis=1))
+            norms = np.linalg.norm(self._matrix, axis=1)
             norms[norms == .0] = 1
             self._matrix /= norms[:, np.newaxis]
         else:
@@ -585,8 +644,8 @@ class BDI(object):
         self.trg_sqr_norm = xp.ones(self.trg_size, dtype=xp.float32)
         self.src_sqr_norm = xp.ones(self.bwd_src_size, dtype=xp.float32)
 
-        self.src_avr_norm = xp.mean(xp.sqrt(xp.sum(self.src_emb[:self.cutoff_size]**2, axis=1)))
-        self.trg_avr_norm = xp.mean(xp.sqrt(xp.sum(self.trg_emb[:self.cutoff_size]**2, axis=1)))
+        self.src_avr_norm = xp.mean(l2norm(self.src_emb[:self.cutoff_size]))
+        self.trg_avr_norm = xp.mean(l2norm(self.trg_emb[:self.cutoff_size]))
         self.src_factor = 1
         self.trg_factor = 1
 
@@ -609,7 +668,7 @@ class BDI(object):
             if unit_norm:
                 length_normalize(self.src_proj_emb, inplace=True)
             if scale:
-                avr_norm = xp.mean(xp.sqrt(xp.sum(self.src_proj_emb[:self.cutoff_size]**2, axis=1)))
+                avr_norm = xp.mean(l2norm(self.src_proj_emb[:self.cutoff_size]))
                 self.src_factor = self.src_avr_norm / avr_norm
                 self.src_proj_emb *= self.src_factor
         else:
@@ -618,7 +677,7 @@ class BDI(object):
             if unit_norm:
                 length_normalize(self.trg_proj_emb, inplace=True)
             if scale:
-                avr_norm = xp.mean(xp.sqrt(xp.sum(self.trg_proj_emb[:self.cutoff_size]**2, axis=1)))
+                avr_norm = xp.mean(l2norm(self.trg_proj_emb[:self.cutoff_size]))
                 self.trg_factor = self.trg_avr_norm / avr_norm
                 self.trg_proj_emb *= self.trg_factor
         return self
