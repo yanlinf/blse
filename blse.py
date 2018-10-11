@@ -186,8 +186,8 @@ def load_data(binary=False):
             y = (y >= 2).astype(np.int32)
         return X, y
 
-    source_wordvecs = utils.WordVecs(args.source_embedding)
-    target_wordvecs = utils.WordVecs(args.target_embedding)
+    source_wordvecs = utils.WordVecs(args.source_embedding, emb_format=args.format)
+    target_wordvecs = utils.WordVecs(args.target_embedding, emb_format=args.format)
 
     dict_obj = utils.BilingualDict(args.dictionary).filter(
         lambda x: x[0] != '-').get_indexed_dictionary(source_wordvecs, target_wordvecs)
@@ -249,6 +249,10 @@ if __name__ == '__main__':
     parser.add_argument('-tl', '--target_lang',
                         help='target language: en/es/ca/eu (default: es)',
                         default='es')
+    parser.add_argument('--format',
+                        choices=['word2vec_bin', 'fasttext_text'],
+                        default='fasttext_text',
+                        help='word embedding format')
     parser.add_argument('-a', '--alpha',
                         help="trade-off between projection and classification objectives (default: 0.001)",
                         default=0.001,
@@ -267,10 +271,10 @@ if __name__ == '__main__':
                         type=int)
     parser.add_argument('-se', '--source_embedding',
                         help='monolingual word embedding of the source language (default: ./emb/en.bin)',
-                        default='./emb/en.bin')
+                        default='./emb/wiki.en.vec')
     parser.add_argument('-te', '--target_embedding',
                         help='monolingual word embedding of the target language (default: ./emb/es.bin)',
-                        default='./emb/es.bin')
+                        default='./emb/wiki.es.vec')
     parser.add_argument('-d', '--dictionary',
                         help='bilingual dictionary of source and target language (default: ./lexicons/bingliu/en-es.txt',
                         default='./lexicons/bingliu/en-es.txt')
