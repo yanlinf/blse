@@ -11,14 +11,10 @@ from utils.cupy_utils import *
 
 def sample_senti_vecs(xpos, xneg, num_sample):
     xp = get_array_module(xpos, xneg)
-    if xp == np:
-        xpos = xp.random.permutation(xpos)
-        xneg = xp.random.permutation(xneg)
-    else:
-        xp.random.permutation(xpos)
-        xp.random.permutation(xneg)
     nsample = min(xpos.shape[0], xneg.shape[0], num_sample)
-    return xpos[:nsample], xneg[:nsample]
+    pos_idx = xp.random.randint(0, xpos.shape[0], nsample)
+    neg_idx = xp.random.randint(0, xneg.shape[0], nsample)
+    return xpos[pos_idx], xneg[neg_idx]
 
 
 def get_pos_neg_vecs(X, y):
@@ -46,7 +42,7 @@ def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward'
             for i in range(20):
                 loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_src.dot(W) - X_trg)
                 logging.debug('loss: %.4f' % loss)
-                if prev_loss - loss < 0.02:
+                if prev_loss - loss < 0.1:
                     break
                 else:
                     prev_loss = loss
@@ -60,7 +56,7 @@ def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward'
             for i in range(20):
                 loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_trg.dot(W) - X_src)
                 logging.debug('loss: %.4f' % loss)
-                if prev_loss - loss < 0.02:
+                if prev_loss - loss < 0.1:
                     break
                 else:
                     prev_loss = loss
@@ -102,8 +98,8 @@ def main(args):
         os.mkdir('log')
     log_file = open(args.log, 'w', encoding='utf-8')
 
-    src_wv = utils.WordVecs(args.source_embedding).normalize(args.normalize)
-    trg_wv = utils.WordVecs(args.target_embedding).normalize(args.normalize)
+    src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+    trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
     trg_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
     src_ds = utils.SentimentDataset(args.source_dataset).to_index(src_wv).to_vecs(src_wv.embedding)
@@ -114,7 +110,7 @@ def main(args):
     keep_prob = args.dropout_init
     alpha = args.alpha_init
 
-    logging.debug('gold dict shape' + str(gold_dict.shape))
+    logging.info('gold dict shape' + str(gold_dict.shape))
 
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
@@ -146,13 +142,9 @@ def main(args):
         logging.debug('running epoch %d...' % epoch)
         logging.debug('alhpa: %.4f' % alpha)
 
-        # compute projection matrix
-        X_src = src_emb[curr_dict[:, 0]]
-        X_trg = trg_emb[curr_dict[:, 1]]
         if epoch % 2 == 0:
-            X_trg.dot(W_trg, out=X_trg)
-            if args.spectral:
-                utils.length_normalize(X_trg, inplace=True)
+            X_src = src_emb[curr_dict[:, 0]]
+            X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
             xpos, xneg = sample_senti_vecs(src_pos, src_neg, args.senti_nsample)
             W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, alpha, 'forward', args.orthogonal, args.normalize_W, args.spectral, args.threshold, learning_rate=args.learning_rate)
             logging.debug('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
@@ -160,9 +152,8 @@ def main(args):
             if args.scale:
                 W_src *= bdi_obj.src_factor
         elif epoch % 2 == 1:
-            X_src.dot(W_src, out=X_src)
-            if args.spectral:
-                utils.length_normalize(X_src, inplace=args.spectral)
+            X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+            X_trg = trg_emb[curr_dict[:, 1]]
             xpos, xneg = sample_senti_vecs(trg_pos, trg_neg, args.senti_nsample)
             W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, alpha, 'backward', args.orthogonal, False, args.spectral, args.threshold, learning_rate=args.learning_rate)
             logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
@@ -197,6 +188,7 @@ def main(args):
 
         # valiadation
         if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
+            bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral or args.test, scale=args.scale, full_trg=True)
             val_trg_ind = bdi_obj.get_target_indices(gold_dict[:, 0])
             accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
@@ -215,14 +207,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-se', '--source_embedding', default='./emb/en.bin', help='monolingual word embedding of the source language (default: ./emb/en.bin)')
     parser.add_argument('-te', '--target_embedding', default='./emb/es.bin', help='monolingual word embedding of the target language (default: ./emb/es.bin)')
+    parser.add_argument('--format', choices=['word2vec_binary', 'fasttext_text'], default='word2vec_binary', help='word embedding format')
     parser.add_argument('-sd', '--source_dataset', default='./datasets/en/opener_sents/', help='source sentiment dataset')
     parser.add_argument('-td', '--target_dataset', default='./datasets/es/opener_sents/', help='target sentiment dataset')
     parser.add_argument('-gd', '--gold_dictionary', default='./lexicons/apertium/en-es.txt', help='gold bilingual dictionary for evaluation(default: ./lexicons/apertium/en-es.txt)')
     parser.add_argument('--load', type=str, default='', help='restore W_src and W_trg from a file')
     parser.add_argument('-vd', '--vector_dim', default=300, type=int, help='dimension of each word vector (default: 300)')
     parser.add_argument('-e', '--epochs', default=500, type=int, help='training epochs (default: 500)')
-    parser.add_argument('-bs', '--batch_size', default=5000, type=int, help='training batch size (default: 5000)')
-    parser.add_argument('-vbs', '--val_batch_size', default=1000, type=int, help='training batch size (default: 1000)')
+    parser.add_argument('-bs', '--batch_size', default=10000, type=int, help='training batch size (default: 10000)')
+    parser.add_argument('-vbs', '--val_batch_size', default=300, type=int, help='training batch size (default: 300)')
     parser.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
     parser.add_argument('--no_proj_error', action='store_true', help='disable proj error monitoring')
     parser.add_argument('--valiadation_step', type=int, default=50, help='valiadation frequency')
@@ -257,7 +250,7 @@ if __name__ == '__main__':
     induction_group.add_argument('-vc', '--vocab_cutoff', default=10000, type=int, help='restrict the vocabulary to k most frequent words')
     induction_group.add_argument('--csls', type=int, default=10, help='number of csls neighbours')
     induction_group.add_argument('--dropout_init', type=float, default=0.1, help='initial keep prob of the dropout machanism')
-    induction_group.add_argument('--dropout_interval', type=int, default=30, help='increase keep_prob every m steps')
+    induction_group.add_argument('--dropout_interval', type=int, default=50, help='increase keep_prob every m steps')
     induction_group.add_argument('--dropout_step', type=float, default=0.1, help='increase keep_prob by a small step')
     induction_group.add_argument('--direction', choices=['forward', 'backward', 'union'], default='union', help='direction of dictionary induction')
     induction_group.add_argument('--scorer', choices=['dot', 'cos', 'euclidean'], default='dot', help='scorer for nearest neighbour retrieval')
@@ -269,6 +262,11 @@ if __name__ == '__main__':
     recommend_group.add_argument('--senti', action='store_true', help='use unsupervised + senti settings')
     recommend_group.add_argument('--test', action='store_true', help='use unsupervised + senti settings')
     recommend_group.add_argument('--unconstrained', action='store_true', help='use unsupervised + unconstrained settings')
+
+    lang_group = parser.add_mutually_exclusive_group()
+    lang_group.add_argument('--en_es', action='store_true', help='train english-spanish embedding')
+    lang_group.add_argument('--en_ca', action='store_true', help='train english-catalan embedding')
+    lang_group.add_argument('--en_eu', action='store_true', help='train english-basque embedding')
 
     args = parser.parse_args()
     if args.unsupervised:
@@ -282,14 +280,28 @@ if __name__ == '__main__':
                             normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised100.csv')
     elif args.senti:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
-                            vocab_cutoff=10000, alpha=10, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1., 
-                            learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01)
+                            vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1., 
+                            learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=False,
+                            dropout_init=0.2, dropout_interval=1, dropout_step=0.002, epochs=1000)
     elif args.test:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', spectral=False, threshold=1.)
     elif args.unconstrained:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', scorer='euclidean', scale=True)
+
+    if args.en_es:
+        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.es.vec', format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
+                            gold_dictionary='lexicons/apertium/en-es.txt')
+    elif args.en_ca:
+        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.ca.vec', format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
+                            gold_dictionary='lexicons/apertium/en-ca.txt')
+    elif args.en_eu:
+        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.eu.vec', format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
+                            gold_dictionary='lexicons/apertium/en-eu.txt')
 
     args = parser.parse_args()
 
