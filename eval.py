@@ -84,6 +84,23 @@ if __name__ == '__main__':
                         const=logging.DEBUG,
                         help='print debug info')
 
+    lang_group = parser.add_mutually_exclusive_group()
+    lang_group.add_argument('--en_es', action='store_true', help='train english-spanish embedding')
+    lang_group.add_argument('--en_ca', action='store_true', help='train english-catalan embedding')
+    lang_group.add_argument('--en_eu', action='store_true', help='train english-basque embedding')
+
+    args = parser.parse_args()
+
+    if args.en_es:
+        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.es.vec', format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/')
+    elif args.en_ca:
+        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.ca.vec', format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/')
+    elif args.en_eu:
+        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.eu.vec', format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/')
+
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel, format='%(asctime)s: %(message)s')
 
