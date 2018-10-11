@@ -1,15 +1,18 @@
 import numpy as np
 from sklearn import svm
 from sklearn.model_selection import GridSearchCV
+from sklearn.exceptions import UndefinedMetricWarning, ConvergenceWarning
+from sklearn.utils.testing import ignore_warnings
 import argparse
 import pickle
-import logging
 import warnings
+import logging
 from multiprocessing import cpu_count
 from utils import utils
 from utils.cupy_utils import *
 
-
+@ignore_warnings(category=ConvergenceWarning)
+@ignore_warnings(category=UndefinedMetricWarning)
 def main(args):
     logging.info(str(args))
 
