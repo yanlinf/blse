@@ -26,6 +26,7 @@ def get_pos_neg_vecs(X, y):
 
 def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward', orthogonal=False, normalize=False, spectral=False, threshold=1., learning_rate=0):
     xp = get_array_module(X_src, X_trg, pos, neg)
+    logging.debug('alpha: %.4f' % alpha)
     if orthogonal:
         if direction == 'forward':
             u, s, vt = xp.linalg.svd(xp.dot(X_trg.T, X_src))
@@ -97,8 +98,14 @@ def main(args):
         os.mkdir('log')
     log_file = open(args.log, 'w', encoding='utf-8')
 
-    src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
-    trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
+    if args.pickle:
+        with open(args.source_embedding, 'rb') as fin:
+            src_wv = pickle.load(fin)
+        with open(args.target_embedding, 'rb') as fin:
+            trg_wv = pickle.load(fin)
+    else:
+        src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+        trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
     trg_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
     src_ds = utils.SentimentDataset(args.source_dataset).to_index(src_wv).to_vecs(src_wv.embedding)
@@ -154,7 +161,7 @@ def main(args):
             X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
             X_trg = trg_emb[curr_dict[:, 1]]
             xpos, xneg = sample_senti_vecs(trg_pos, trg_neg, args.senti_nsample)
-            W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, alpha, 'backward', args.orthogonal, False, args.spectral, args.threshold, learning_rate=args.learning_rate)
+            W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, (0 if args.no_target_senti else alpha), 'backward', args.orthogonal, False, args.spectral, args.threshold, learning_rate=args.learning_rate)
             logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
             bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral or args.test, scale=args.scale)
             if args.scale:
@@ -223,6 +230,7 @@ if __name__ == '__main__':
     parser.add_argument('--cuda', action='store_true', help='use cuda to accelerate')
     parser.add_argument('--log', default='./log/init100.csv', type=str, help='file to print log')
     parser.add_argument('--plot', action='store_true', help='plot results')
+    parser.add_argument('--pickle', action='store_true', help='load from pickled objects')
 
     init_group = parser.add_mutually_exclusive_group()
     init_group.add_argument('-d', '--init_dictionary', default='./init_dict/init100.txt', help='bilingual dictionary for learning bilingual mapping (default: ./init_dict/init100.txt)')
@@ -239,6 +247,7 @@ if __name__ == '__main__':
     mapping_group.add_argument('--threshold', type=float, default=1., help='thresholding the singular value of W')
     mapping_group.add_argument('--normalize_W', action='store_true', help='add f-norm restriction on W')
     mapping_group.add_argument('-n', '--senti_nsample', type=int, default=200, help='sentiment examples')
+    mapping_group.add_argument('--no_target_senti', action='store_true', help='no target sentiment')
 
     alpha_group = parser.add_argument_group()
     alpha_group.add_argument('-a', '--alpha', type=float, default=0.1, help='trade-off between sentiment and alignment')
@@ -259,6 +268,7 @@ if __name__ == '__main__':
     recommend_group.add_argument('-s5', '--supervised5000', action='store_true', help='use supervised5000 settings')
     recommend_group.add_argument('-s1', '--supervised100', action='store_true', help='use supervised100 settings')
     recommend_group.add_argument('--senti', action='store_true', help='use unsupervised + senti settings')
+    recommend_group.add_argument('--ubise', action='store_true', help='use unsupervised + senti settings')
     recommend_group.add_argument('--test', action='store_true', help='use unsupervised + senti settings')
     recommend_group.add_argument('--unconstrained', action='store_true', help='use unsupervised + unconstrained settings')
 
@@ -282,23 +292,32 @@ if __name__ == '__main__':
                             vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1., 
                             learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=False,
                             dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000)
-    elif args.test:
+    elif args.ubise:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
-                            vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', spectral=False, threshold=1.)
+                            vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1., 
+                            learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=False,
+                            dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000,
+                            no_target_senti=True, debug=True)
     elif args.unconstrained:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', scorer='euclidean', scale=True)
 
     if args.en_es:
-        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.es.vec', format='fasttext_text',
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/es.bin' if args.pickle else 'emb/wiki.es.vec'
+        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-es.txt')
     elif args.en_ca:
-        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.ca.vec', format='fasttext_text',
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
+        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-ca.txt')
     elif args.en_eu:
-        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.eu.vec', format='fasttext_text',
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
+        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-eu.txt')
 
