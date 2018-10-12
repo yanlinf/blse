@@ -8,7 +8,6 @@ import numpy as np
 from utils import utils
 from utils.cupy_utils import *
 
-
 def sample_senti_vecs(xpos, xneg, num_sample):
     xp = get_array_module(xpos, xneg)
     nsample = min(xpos.shape[0], xneg.shape[0], num_sample)
@@ -108,7 +107,7 @@ def main(args):
     trg_pos, trg_neg = get_pos_neg_vecs(xp.array(trg_ds.train[0]), xp.array(trg_ds.train[1]))
     gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     keep_prob = args.dropout_init
-    alpha = args.alpha_init
+    alpha = min(args.alpha, args.alpha_init)
 
     logging.info('gold dict shape' + str(gold_dict.shape))
 
