@@ -46,8 +46,8 @@ def main(args):
         os.mkdir('log')
     log_file = open(args.log, 'w', encoding='utf-8')
 
-    src_wv = utils.WordVecs(args.source_embedding).normalize(args.normalize)
-    trg_wv = utils.WordVecs(args.target_embedding).normalize(args.normalize)
+    src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+    trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
     trg_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
     gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
@@ -85,6 +85,7 @@ def main(args):
 
         # valiadation
         if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
+            bdi_obj.project(W_trg, full_trg=True)
             val_trg_ind = bdi_obj.get_target_indices(gold_dict[:, 0])
             accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
@@ -105,6 +106,7 @@ if __name__ == '__main__':
     parser.add_argument('-tl', '--target_lang', default='es', help='target language: en/es/ca/eu (default: es)')
     parser.add_argument('-se', '--source_embedding', default='./emb/en.bin', help='monolingual word embedding of the source language (default: ./emb/en.bin)')
     parser.add_argument('-te', '--target_embedding', default='./emb/es.bin', help='monolingual word embedding of the target language (default: ./emb/es.bin)')
+    parser.add_argument('--format', choices=['word2vec_bin', 'fasttext_text'], default='word2vec_bin', help='word embedding format')
     parser.add_argument('-gd', '--gold_dictionary', default='./lexicons/apertium/en-es.txt', help='gold bilingual dictionary for evaluation(default: ./lexicons/apertium/en-es.txt)')
     parser.add_argument('-W', '--W_target', type=str, default='', help='restore W_target from a file')
     parser.add_argument('-vd', '--vector_dim', default=300, type=int, help='dimension of each word vector (default: 300)')
@@ -149,7 +151,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     if args.unsupervised:
-        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/unsupervised.csv')
+        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/unsupervised.csv', dropout_interval=40)
     elif args.unconstrained:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=False, log='./log/unconstrained.csv')
     elif args.supervised5000:
