@@ -21,6 +21,9 @@ def main(args):
     src_proj_emb = np.empty(src_wv.embedding.shape, dtype=np.float32)
     trg_proj_emb = np.empty(trg_wv.embedding.shape, dtype=np.float32)
 
+    if args.output != '':
+        with open(args.output, 'w', encoding='utf-8') as fout:
+            fout.write('infile,is_binary,f1_macro,best_C\n')
     for infile in args.W:
         if args.model == 'ubise':
             with open(infile, 'rb') as fin:
@@ -30,27 +33,37 @@ def main(args):
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
             utils.length_normalize(trg_proj_emb, inplace=True)
         elif args.model == 'ubi':
-             with open(infile, 'rb') as fin:
+            with open(infile, 'rb') as fin:
                 W_trg = pickle.load(fin)
             src_proj_emb = src_wv.embedding
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
-        src_ds = utils.SentimentDataset(args.source_dataset).to_index(src_wv, binary=args.binary).to_vecs(src_proj_emb, shuffle=True)
-        trg_ds = utils.SentimentDataset(args.target_dataset).to_index(trg_wv, binary=args.binary).to_vecs(trg_proj_emb, shuffle=True)
-        train_x = np.concatenate((src_ds.train[0], src_ds.dev[0], src_ds.test[0]), axis=0)
-        train_y = np.concatenate((src_ds.train[1], src_ds.dev[1], src_ds.test[1]), axis=0)
-        test_x = trg_ds.train[0]
-        test_y = trg_ds.train[1]
 
-        param_grid = {
-            'C': [0.03, 0.1, 0.3, 1, 3, 10, 30, 80],
-        }
-        svc = svm.LinearSVC()
-        clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count())
-        clf.fit(train_x, train_y)
-        print('------------------------------------------------------')
-        print('Result for {0}:'.format(infile))
-        print('Test F1_macro: {0:.4f}'.format(clf.score(test_x, test_y)))
-        print('Best params: {0}'.format(clf.best_params_))
+        for is_binary in (True, False):
+            src_ds = utils.SentimentDataset(args.source_dataset).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
+            trg_ds = utils.SentimentDataset(args.target_dataset).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
+            train_x = np.concatenate((src_ds.train[0], src_ds.dev[0], src_ds.test[0]), axis=0)
+            train_y = np.concatenate((src_ds.train[1], src_ds.dev[1], src_ds.test[1]), axis=0)
+            test_x = trg_ds.train[0]
+            test_y = trg_ds.train[1]
+            if args.C >= 0:
+                clf = svm.LinearSVC(C=args.C)
+            else:
+                param_grid = {
+                    'C': [0.03, 0.1, 0.3, 1, 3, 10, 30, 80],
+                }
+                svc = svm.LinearSVC()
+                clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count())
+            clf.fit(train_x, train_y)
+            test_score = clf.score(test_x, test_y)
+            best_C = args.C if args.C >= 0 else clf.best_params_
+            print('------------------------------------------------------')
+            print('Is binary: {0}'.format(is_binary))
+            print('Result for {0}:'.format(infile))
+            print('Test F1_macro: {0:.4f}'.format(test_score))
+            print('Best params: {0}'.format(clf.best_params_))
+            if args.output != '':
+                with open(args.output, 'a', encoding='utf-8') as fout:
+                    fout.write('{0},{1},{2},{3},{4:.4f},{5}\n'.format(args.lang, args.model,infile, is_binary, test_score, clf.best_params_['C']))
 
 
 if __name__ == '__main__':
@@ -59,17 +72,21 @@ if __name__ == '__main__':
                         nargs='+',
                         default=['checkpoints/senti.bin'],
                         help='W_src and W_trg')
-    parser.add_arugment('--model',
-                        choices=['ubise', 'ubi',
+    parser.add_argument('-C', '--C',
+                        default=-1,
+                        type=float,
+                        help='train svm with fixed C')
+    parser.add_argument('--lang',
+                        default='-',
+                        help='language_pair')
+    parser.add_argument('--model',
+                        choices=['ubise', 'ubi'],
                         default='ubise',
-                        help='model type']
+                        help='model type')
     parser.add_argument('--format',
                         choices=['word2vec_bin', 'fasttext_text'],
                         default='fasttext_text',
                         help='word embedding format')
-    parser.add_argument('-bi', '--binary',
-                        action='store_true',
-                        help='use 2-class set up')
     parser.add_argument('-se', '--source_embedding',
                         default='./emb/en.bin',
                         help='monolingual word embedding of the source language (default: ./emb/en.bin)')
@@ -87,6 +104,9 @@ if __name__ == '__main__':
                         nargs='*',
                         default=['center', 'unit'],
                         help='normalization actions')
+    parser.add_argument('-o', '--output',
+                        default='',
+                        help='output file')
     parser.add_argument('--debug',
                         action='store_const',
                         dest='loglevel',
@@ -103,13 +123,16 @@ if __name__ == '__main__':
 
     if args.en_es:
         parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.es.vec', format='fasttext_text',
-                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/')
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
+                            lang='en-es')
     elif args.en_ca:
         parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.ca.vec', format='fasttext_text',
-                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/')
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
+                            lang='en-ca')
     elif args.en_eu:
         parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.eu.vec', format='fasttext_text',
-                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/')
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
+                            lang='en-eu')
 
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel, format='%(asctime)s: %(message)s')
