@@ -96,7 +96,7 @@ def main(args):
     if not os.path.exists('checkpoints'):
         os.mkdir('checkpoints')
     with open(args.save_path, 'wb') as fout:
-        pickle.dump(W_trg, fout)
+        pickle.dump(asnumpy(W_trg), fout)
 
 
 if __name__ == '__main__':
@@ -142,11 +142,16 @@ if __name__ == '__main__':
     recommend_group.add_argument('-s5', '--supervised5000', action='store_true', help='use supervised5000 settings')
     recommend_group.add_argument('-s1', '--supervised100', action='store_true', help='use supervised100 settings')
 
+    lang_group = parser.add_mutually_exclusive_group()
+    lang_group.add_argument('--en_es', action='store_true', help='train english-spanish embedding')
+    lang_group.add_argument('--en_ca', action='store_true', help='train english-catalan embedding')
+    lang_group.add_argument('--en_eu', action='store_true', help='train english-basque embedding')
+
     args = parser.parse_args()
     if args.unsupervised:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/unsupervised.csv')
     elif args.unconstrained:
-        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=False, log='./log/unsupervised.csv')
+        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=False, log='./log/unconstrained.csv')
     elif args.supervised5000:
         parser.set_defaults(init_dictionary='./init_dict/init5000.txt', csls=10, direction='union', cuda=True,
                             normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised5000.csv')
@@ -154,6 +159,18 @@ if __name__ == '__main__':
         parser.set_defaults(init_dictionary='./init_dict/init100.txt', csls=10, direction='union', cuda=True,
                             normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised100.csv')
 
+    if args.en_es:
+        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.es.vec', format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
+                            gold_dictionary='lexicons/apertium/en-es.txt', save_path='checkpoints/en-es-ubi-0.bin')
+    elif args.en_ca:
+        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.ca.vec', format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
+                            gold_dictionary='lexicons/apertium/en-ca.txt', save_path='checkpoints/en-ca-ubi-0.bin')
+    elif args.en_eu:
+        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.eu.vec', format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
+                            gold_dictionary='lexicons/apertium/en-eu.txt', save_path='checkpoints/en-eu-ubi-0.bin')
     args = parser.parse_args()
 
     logging.basicConfig(level=args.loglevel, format='%(asctime)s: %(message)s')
