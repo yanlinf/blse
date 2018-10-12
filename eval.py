@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn import svm
 from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import f1_score
 from sklearn.exceptions import UndefinedMetricWarning, ConvergenceWarning
 from sklearn.utils.testing import ignore_warnings
 import argparse
@@ -16,8 +17,14 @@ from utils.cupy_utils import *
 def main(args):
     logging.info(str(args))
 
-    src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
-    trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
+    if args.pickle:
+        with open(args.source_embedding, 'rb') as fin:
+            src_wv = pickle.load(fin)
+        with open(args.target_embedding, 'rb') as fin:
+            trg_wv = pickle.load(fin)
+    else:
+        src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+        trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
     src_proj_emb = np.empty(src_wv.embedding.shape, dtype=np.float32)
     trg_proj_emb = np.empty(trg_wv.embedding.shape, dtype=np.float32)
 
@@ -54,13 +61,15 @@ def main(args):
                 svc = svm.LinearSVC()
                 clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count())
             clf.fit(train_x, train_y)
-            test_score = clf.score(test_x, test_y)
+            test_score = f1_score(test_y, clf.predict(test_x), average='macro')
             best_C = args.C if args.C >= 0 else clf.best_params_
             print('------------------------------------------------------')
             print('Is binary: {0}'.format(is_binary))
             print('Result for {0}:'.format(infile))
             print('Test F1_macro: {0:.4f}'.format(test_score))
-            print('Best params: {0}'.format(clf.best_params_))
+            print('Best C: {0}'.format(best_C))
+            if args.C < 0:
+                print(clf.cv_results_)
             if args.output != '':
                 with open(args.output, 'a', encoding='utf-8') as fout:
                     fout.write('{0},{1},{2},{3},{4:.4f},{5}\n'.format(args.lang, args.model,infile, is_binary, test_score, clf.best_params_['C']))
@@ -107,6 +116,9 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output',
                         default='',
                         help='output file')
+    parser.add_argument('--pickle',
+                        action='store_true',
+                        help='load from pickled object')
     parser.add_argument('--debug',
                         action='store_const',
                         dest='loglevel',
@@ -121,16 +133,23 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+
     if args.en_es:
-        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.es.vec', format='fasttext_text',
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/es.bin' if args.pickle else 'emb/wiki.es.vec'
+        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
                             lang='en-es')
     elif args.en_ca:
-        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.ca.vec', format='fasttext_text',
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
+        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
                             lang='en-ca')
     elif args.en_eu:
-        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.eu.vec', format='fasttext_text',
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
+        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
                             lang='en-eu')
 
