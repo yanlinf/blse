@@ -42,7 +42,7 @@ def main(args):
         test_y = trg_ds.train[1]
 
         param_grid = {
-            'C': [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000],
+            'C': [0.03, 0.1, 0.3, 1, 3, 10, 30, 80],
         }
         svc = svm.LinearSVC()
         clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count())
