@@ -22,12 +22,18 @@ def main(args):
     trg_proj_emb = np.empty(trg_wv.embedding.shape, dtype=np.float32)
 
     for infile in args.W:
-        with open(infile, 'rb') as fin:
-            W_src, W_trg = pickle.load(fin)
-        src_wv.embedding.dot(W_src, out=src_proj_emb)
-        utils.length_normalize(src_proj_emb, inplace=True)
-        trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
-        utils.length_normalize(trg_proj_emb, inplace=True)
+        if args.model == 'ubise':
+            with open(infile, 'rb') as fin:
+                W_src, W_trg = pickle.load(fin)
+            src_wv.embedding.dot(W_src, out=src_proj_emb)
+            utils.length_normalize(src_proj_emb, inplace=True)
+            trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
+            utils.length_normalize(trg_proj_emb, inplace=True)
+        elif args.model == 'ubi':
+             with open(infile, 'rb') as fin:
+                W_trg = pickle.load(fin)
+            src_proj_emb = src_wv.embedding
+            trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
         src_ds = utils.SentimentDataset(args.source_dataset).to_index(src_wv, binary=args.binary).to_vecs(src_proj_emb, shuffle=True)
         trg_ds = utils.SentimentDataset(args.target_dataset).to_index(trg_wv, binary=args.binary).to_vecs(trg_proj_emb, shuffle=True)
         train_x = np.concatenate((src_ds.train[0], src_ds.dev[0], src_ds.test[0]), axis=0)
@@ -53,6 +59,10 @@ if __name__ == '__main__':
                         nargs='+',
                         default=['checkpoints/senti.bin'],
                         help='W_src and W_trg')
+    parser.add_arugment('--model',
+                        choices=['ubise', 'ubi',
+                        default='ubise',
+                        help='model type']
     parser.add_argument('--format',
                         choices=['word2vec_bin', 'fasttext_text'],
                         default='fasttext_text',
