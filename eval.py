@@ -15,7 +15,7 @@ from utils.cupy_utils import *
 @ignore_warnings(category=ConvergenceWarning)
 @ignore_warnings(category=UndefinedMetricWarning)
 def main(args):
-    logging.info(str(args))
+    print(str(args))
 
     if args.pickle:
         with open(args.source_embedding, 'rb') as fin:
@@ -62,14 +62,12 @@ def main(args):
                 clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count())
             clf.fit(train_x, train_y)
             test_score = f1_score(test_y, clf.predict(test_x), average='macro')
-            best_C = args.C if args.C >= 0 else clf.best_params_
+            best_C = args.C if args.C >= 0 else clf.best_params_['C']
             print('------------------------------------------------------')
             print('Is binary: {0}'.format(is_binary))
             print('Result for {0}:'.format(infile))
             print('Test F1_macro: {0:.4f}'.format(test_score))
             print('Best C: {0}'.format(best_C))
-            if args.C < 0:
-                print(clf.cv_results_)
             if args.output != '':
                 with open(args.output, 'a', encoding='utf-8') as fout:
                     fout.write('{0},{1},{2},{3},{4:.4f},{5}\n'.format(args.lang, args.model,infile, is_binary, test_score, clf.best_params_['C']))
