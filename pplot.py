@@ -3,7 +3,16 @@ import numpy as np
 import argparse
 import pickle
 from sklearn.manifold import TSNE
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+from itertools import accumulate
 from utils.utils import *
+
+
+COLORS = ['b', 'b', 'r', 'g', 'k', 'y', 'c']
+
+np.random.seed(0)
 
 
 def load_W_source(model_path):
@@ -22,6 +31,7 @@ def main(args):
     with open(args.pickled_embedding, 'rb') as fin:
         wv = pickle.load(fin)
     senti_words = SentiWordSet(args.senti_words).to_index(wv)
+    offsets = [0] + list(accumulate([len(t) for t in senti_words.wordsets]))
     word_idx = sum(senti_words.wordsets, [])
 
     if args.model == 'ubise_source':
@@ -45,8 +55,14 @@ def main(args):
         proj_emb = np.dot(wv.embedding, W)
 
     X = proj_emb[word_idx]
-    with open(args.output, 'wb') as fout:
-        pickle.dump((senti_words, X), fout)
+    fig, ax = plt.subplots()
+    X = TSNE(2, verbose=2).fit_transform(X)
+    for i, label in enumerate(senti_words.labels):
+        tmp = X[offsets[i]:offsets[i + 1]]
+        ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
+    ax.legend()
+    fig.set_size_inches(9, 8)
+    fig.savefig(args.output)
 
 
 if __name__ == '__main__':
