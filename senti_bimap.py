@@ -8,6 +8,7 @@ import numpy as np
 from utils import utils
 from utils.cupy_utils import *
 
+
 def sample_senti_vecs(xpos, xneg, num_sample):
     xp = get_array_module(xpos, xneg)
     nsample = min(xpos.shape[0], xneg.shape[0], num_sample)
