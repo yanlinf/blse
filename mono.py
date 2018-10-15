@@ -4,7 +4,9 @@ import argparse
 from sklearn import svm
 from sklearn.model_selection import GridSearchCV
 from multiprocessing import cpu_count
-from utils.utils import *
+from utils.dataset import *
+from utils.math import *
+from utils.bdi import *
 
 
 def lookup_and_shuffle(X, y, emb, binary=False):

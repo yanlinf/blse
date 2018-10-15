@@ -2,7 +2,9 @@ import tensorflow as tf
 import numpy as np
 import argparse
 from sklearn.metrics import f1_score
-from utils.utils import *
+from utils.dataset import *
+from utils.math import *
+from utils.bdi import *
 import logging
 
 

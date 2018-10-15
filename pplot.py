@@ -7,7 +7,9 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 from itertools import accumulate
-from utils.utils import *
+from utils.dataset import *
+from utils.math import *
+from utils.bdi import *
 
 
 COLORS = ['b', 'b', 'r', 'g', 'k', 'y', 'c']

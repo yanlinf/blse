@@ -9,7 +9,9 @@ import pickle
 import warnings
 import logging
 from multiprocessing import cpu_count
-from utils.utils import *
+from utils.dataset import *
+from utils.math import *
+from utils.bdi import *
 from utils.cupy_utils import *
 
 @ignore_warnings(category=ConvergenceWarning)

@@ -1,5 +1,7 @@
 import pickle
-from utils.utils import *
+from utils.dataset import *
+from utils.math import *
+from utils.bdi import *
 
 
 def main():

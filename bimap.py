@@ -5,7 +5,9 @@ import sys
 import os
 import re
 import numpy as np
-from utils.utils import *
+from utils.dataset import *
+from utils.math import *
+from utils.bdi import *
 from cupy_utils import *
 
 
