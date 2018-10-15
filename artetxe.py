@@ -3,7 +3,7 @@ from sklearn import svm
 from sklearn.model_selection import GridSearchCV, PredefinedSplit
 from sklearn.metrics import make_scorer, f1_score
 import argparse
-from utils import utils
+from utils.utils import *
 from multiprocessing import cpu_count
 import pickle
 import logging
@@ -77,18 +77,18 @@ def main(args):
     logging.info(str(args))
 
     # load word embedding
-    source_wordvecs = utils.WordVecs(
+    source_wordvecs = WordVecs(
         args.source_embedding, normalize=args.normalize)
-    target_wordvecs = utils.WordVecs(
+    target_wordvecs = WordVecs(
         args.target_embedding, normalize=args.normalize)
 
     # load bilingual lexicon
-    dict_obj = utils.BilingualDict(args.dictionary).filter(
+    dict_obj = BilingualDict(args.dictionary).filter(
         lambda x: x[0] != '-').get_indexed_dictionary(source_wordvecs, target_wordvecs)
 
-    source_dataset = utils.SentimentDataset(
+    source_dataset = SentimentDataset(
         args.source_dataset).to_index(source_wordvecs)
-    target_dataset = utils.SentimentDataset(
+    target_dataset = SentimentDataset(
         args.target_dataset).to_index(target_wordvecs)
 
     # create bilingual embedding

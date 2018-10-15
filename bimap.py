@@ -5,8 +5,8 @@ import sys
 import os
 import re
 import numpy as np
-from utils import utils
-from utils.cupy_utils import *
+from utils.utils import *
+from cupy_utils import *
 
 
 def plot(files, labels):
@@ -46,23 +46,23 @@ def main(args):
         os.mkdir('log')
     log_file = open(args.log, 'w', encoding='utf-8')
 
-    src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
-    trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
+    src_wv = WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+    trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
     trg_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
-    gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
+    gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     keep_prob = args.dropout_init
     
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
     elif args.init_unsupervised:
-        init_dict = utils.get_unsupervised_init_dict(src_emb, trg_emb, args.vocab_cutoff, args.csls, args.normalize, args.direction)
+        init_dict = get_unsupervised_init_dict(src_emb, trg_emb, args.vocab_cutoff, args.csls, args.normalize, args.direction)
     else:
-        init_dict = xp.array(utils.BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
+        init_dict = xp.array(BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     curr_dict = init_dict
     del src_wv, trg_wv
 
-    bdi_obj = utils.BDI(src_emb, trg_emb, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both', direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size)
+    bdi_obj = BDI(src_emb, trg_emb, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both', direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size)
 
     # self learning
     for epoch in range(args.epochs):
@@ -73,7 +73,7 @@ def main(args):
             with open(args.W_target, 'rb') as fin:
                 W_trg = pickle.load(fin)
         else:
-            W_trg = utils.get_projection_matrix(X_src, X_trg, orthogonal=args.orthogonal, direction='backward')
+            W_trg = get_projection_matrix(X_src, X_trg, orthogonal=args.orthogonal, direction='backward')
         bdi_obj.project(W_trg)
 
         # dictionary induction

@@ -4,7 +4,7 @@ import argparse
 from sklearn import svm
 from sklearn.model_selection import GridSearchCV
 from multiprocessing import cpu_count
-from utils import utils
+from utils.utils import *
 
 
 def lookup_and_shuffle(X, y, emb, binary=False):
@@ -27,9 +27,9 @@ def main(args):
     logging.info(str(args))
 
     # load word embedding
-    target_wordvec = utils.WordVecs(args.target_embedding, normalize=args.normalize)
+    target_wordvec = WordVecs(args.target_embedding, normalize=args.normalize)
 
-    target_dataset = utils.SentimentDataset(args.target_dataset).to_index(target_wordvec)
+    target_dataset = SentimentDataset(args.target_dataset).to_index(target_wordvec)
 
     # embedding lookup and prepare traning data
 

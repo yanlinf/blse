@@ -5,7 +5,7 @@ import sys
 import os
 import re
 import numpy as np
-from utils import utils
+from utils.utils import *
 from utils.cupy_utils import *
 
 
@@ -105,15 +105,15 @@ def main(args):
         with open(args.target_embedding, 'rb') as fin:
             trg_wv = pickle.load(fin)
     else:
-        src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
-        trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
+        src_wv = WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+        trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
     trg_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
-    src_ds = utils.SentimentDataset(args.source_dataset).to_index(src_wv).to_vecs(src_wv.embedding)
-    trg_ds = utils.SentimentDataset(args.target_dataset).to_index(trg_wv).to_vecs(trg_wv.embedding)
+    src_ds = SentimentDataset(args.source_dataset).to_index(src_wv).to_vecs(src_wv.embedding)
+    trg_ds = SentimentDataset(args.target_dataset).to_index(trg_wv).to_vecs(trg_wv.embedding)
     src_pos, src_neg = get_pos_neg_vecs(xp.array(src_ds.train[0]), xp.array(src_ds.train[1]))
     trg_pos, trg_neg = get_pos_neg_vecs(xp.array(trg_ds.train[0]), xp.array(trg_ds.train[1]))
-    gold_dict = xp.array(utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
+    gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     keep_prob = args.dropout_init
     alpha = min(args.alpha, args.alpha_init)
 
@@ -122,12 +122,12 @@ def main(args):
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
     elif args.init_unsupervised:
-        init_dict = utils.get_unsupervised_init_dict(src_emb, trg_emb, args.vocab_cutoff, args.csls, args.normalize, args.direction)
+        init_dict = get_unsupervised_init_dict(src_emb, trg_emb, args.vocab_cutoff, args.csls, args.normalize, args.direction)
     elif args.init_random:
         size = args.vocab_cutoff * 2 if args.direction == 'both' else args.vocab_cutoff
         init_dict = xp.stack((xp.arange(size), xp.random.permutation(size)), axis=1)
     else:
-        init_dict = xp.array(utils.BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
+        init_dict = xp.array(BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     del src_wv, trg_wv
 
     if args.load != '':
@@ -138,7 +138,7 @@ def main(args):
     else:
         W_src = W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
 
-    bdi_obj = utils.BDI(src_emb, trg_emb, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
+    bdi_obj = BDI(src_emb, trg_emb, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
                         direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer=args.scorer)
     bdi_obj.project(W_src, 'forward', unit_norm=args.spectral)
     bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral)
@@ -170,7 +170,7 @@ def main(args):
 
         if not args.no_proj_error:
             if args.spectral or args.test:
-                proj_error = xp.sum((utils.length_normalize(src_emb[gold_dict[:, 0]] @ W_src, False) - utils.length_normalize(trg_emb[gold_dict[:, 1]] @ W_trg, False))**2)
+                proj_error = xp.sum((length_normalize(src_emb[gold_dict[:, 0]] @ W_src, False) - length_normalize(trg_emb[gold_dict[:, 1]] @ W_trg, False))**2)
             else:
                 proj_error = xp.sum((src_emb[gold_dict[:, 0]] @ W_src - trg_emb[gold_dict[:, 1]] @ W_trg)**2)
             logging.info('proj error: %.4f' % proj_error)

@@ -9,7 +9,7 @@ import pickle
 import warnings
 import logging
 from multiprocessing import cpu_count
-from utils import utils
+from utils.utils import *
 from utils.cupy_utils import *
 
 @ignore_warnings(category=ConvergenceWarning)
@@ -23,8 +23,8 @@ def main(args):
         with open(args.target_embedding, 'rb') as fin:
             trg_wv = pickle.load(fin)
     else:
-        src_wv = utils.WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
-        trg_wv = utils.WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
+        src_wv = WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+        trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
     src_proj_emb = np.empty(src_wv.embedding.shape, dtype=np.float32)
     trg_proj_emb = np.empty(trg_wv.embedding.shape, dtype=np.float32)
 
@@ -36,9 +36,9 @@ def main(args):
             with open(infile, 'rb') as fin:
                 W_src, W_trg = pickle.load(fin)
             src_wv.embedding.dot(W_src, out=src_proj_emb)
-            utils.length_normalize(src_proj_emb, inplace=True)
+            length_normalize(src_proj_emb, inplace=True)
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
-            utils.length_normalize(trg_proj_emb, inplace=True)
+            length_normalize(trg_proj_emb, inplace=True)
         elif args.model == 'ubi':
             with open(infile, 'rb') as fin:
                 W_trg = pickle.load(fin)
@@ -46,8 +46,8 @@ def main(args):
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
 
         for is_binary in (True, False):
-            src_ds = utils.SentimentDataset(args.source_dataset).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
-            trg_ds = utils.SentimentDataset(args.target_dataset).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
+            src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
+            trg_ds = SentimentDataset(args.target_dataset).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
             train_x = np.concatenate((src_ds.train[0], src_ds.dev[0], src_ds.test[0]), axis=0)
             train_y = np.concatenate((src_ds.train[1], src_ds.dev[1], src_ds.test[1]), axis=0)
             test_x = trg_ds.train[0]

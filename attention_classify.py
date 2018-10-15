@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 from sklearn.metrics import f1_score
-from utils import utils
+from utils.utils import *
 import logging
 
 
@@ -98,9 +98,9 @@ def print_examples_with_attention(X, y, pred, wordvecs, attention):
 
 def main(args):
     logging.info(str(args))
-    source_wordvecs = utils.WordVecs(args.source_embedding, normalize=args.normalize)
+    source_wordvecs = WordVecs(args.source_embedding, normalize=args.normalize)
     source_pad_id = source_wordvecs.add_word('<PAD>', np.zeros(args.vector_dim))
-    source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvecs)
+    source_dataset = SentimentDataset(args.source_dataset).to_index(source_wordvecs)
     train_x, train_y = make_data(*source_dataset.train, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id)
     test_x, test_y = make_data(*source_dataset.test, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id)
     with tf.Session() as sess:

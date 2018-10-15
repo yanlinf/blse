@@ -9,7 +9,7 @@ import argparse
 from pprint import pprint
 from sklearn.metrics import f1_score
 import logging
-from utils import utils
+from utils.utils import *
 
 
 class BLSE(object):
@@ -186,16 +186,16 @@ def load_data(binary=False):
             y = (y >= 2).astype(np.int32)
         return X, y
 
-    source_wordvecs = utils.WordVecs(args.source_embedding, emb_format=args.format)
-    target_wordvecs = utils.WordVecs(args.target_embedding, emb_format=args.format)
+    source_wordvecs = WordVecs(args.source_embedding, emb_format=args.format)
+    target_wordvecs = WordVecs(args.target_embedding, emb_format=args.format)
 
-    dict_obj = utils.BilingualDict(args.dictionary).filter(
+    dict_obj = BilingualDict(args.dictionary).filter(
         lambda x: x[0] != '-').get_indexed_dictionary(source_wordvecs, target_wordvecs)
     source_words = source_wordvecs.embedding[dict_obj[:, 0]]
     target_words = target_wordvecs.embedding[dict_obj[:, 1]]
 
-    source_dataset = utils.SentimentDataset(args.source_dataset).to_index(source_wordvecs)
-    target_dataset = utils.SentimentDataset(args.target_dataset).to_index(target_wordvecs)
+    source_dataset = SentimentDataset(args.source_dataset).to_index(source_wordvecs)
+    target_dataset = SentimentDataset(args.target_dataset).to_index(target_wordvecs)
 
     train_x, train_y = lookup_and_shuffle(*source_dataset.train, source_wordvecs.embedding, binary)
     test_x, test_y = lookup_and_shuffle(*target_dataset.train, target_wordvecs.embedding, binary)

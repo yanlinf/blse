@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 from sklearn.metrics import f1_score
-from utils import utils
+from utils.utils import *
 import logging
 
 
@@ -185,17 +185,17 @@ def make_data(X, y, embedding, vec_dim, binary, pad_id, shuffle=True):
 def main(args):
     logging.info(str(args))
 
-    src_wv = utils.WordVecs(args.source_embedding, normalize=args.normalize)
-    trg_wv = utils.WordVecs(args.target_embedding, normalize=args.normalize)
+    src_wv = WordVecs(args.source_embedding, normalize=args.normalize)
+    trg_wv = WordVecs(args.target_embedding, normalize=args.normalize)
     src_pad_id = src_wv.add_word('<PAD>', np.zeros(300))
     trg_pad_id = trg_wv.add_word('<PAD>', np.zeros(300))
-    src_dataset = utils.SentimentDataset(args.source_dataset).to_index(src_wv)
-    trg_dataset = utils.SentimentDataset(args.target_dataset).to_index(trg_wv)
+    src_dataset = SentimentDataset(args.source_dataset).to_index(src_wv)
+    trg_dataset = SentimentDataset(args.target_dataset).to_index(trg_wv)
     src_x, src_y = make_data(*src_dataset.train, src_wv.embedding, args.vector_dim, args.binary, src_pad_id)
     src_test_x, src_test_y = make_data(*src_dataset.test, src_wv.embedding, args.vector_dim, args.binary, src_pad_id)
     trg_x, trg_y = make_data(*trg_dataset.train, trg_wv.embedding, args.vector_dim, args.binary, trg_pad_id)
     trg_test_x, trg_test_y = make_data(*trg_dataset.test, trg_wv.embedding, args.vector_dim, args.binary, trg_pad_id)
-    gold_dict = utils.BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv)
+    gold_dict = BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv)
     X_src = src_wv.embedding[gold_dict[:, 0]]
     X_trg = trg_wv.embedding[gold_dict[:, 1]]
 
@@ -210,7 +210,7 @@ def main(args):
         
         u, s, vt = np.linalg.svd(model.W_target)
         W_trg = np.dot(u, vt)
-        bdi = utils.BDI(src_wv.embedding, trg_wv.embedding, 50, args.cuda)
+        bdi = BDI(src_wv.embedding, trg_wv.embedding, 50, args.cuda)
         trg_indices = bdi.project(W_trg).get_target_indices(gold_dict[:, 0])
         acc = np.mean((trg_indices == gold_dict[:, 1]).astype(np.int32))
         logging.info('Accuracy on bilingual dictionary induction: %.8f' % acc)
