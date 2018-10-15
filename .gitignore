@@ -1,4 +1,5 @@
 # Poject specific
+backup/
 log/
 result/
 checkpoints/
