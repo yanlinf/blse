@@ -1,4 +1,5 @@
 # Poject specific
+*.json
 backup/
 log/
 result/
