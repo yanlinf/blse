@@ -8,7 +8,7 @@ import numpy as np
 from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
-from cupy_utils import *
+from utils.cupy_utils import *
 
 
 def plot(files, labels):
