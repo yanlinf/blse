@@ -1,4 +1,3 @@
-import tensorflow as tf
 import numpy as np
 import argparse
 import pickle
@@ -10,6 +9,7 @@ from itertools import accumulate
 from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
+from utils.model import *
 
 
 COLORS = ['b', 'b', 'r', 'g', 'k', 'y', 'c']
@@ -30,40 +30,53 @@ def load_W_source(model_path):
 
 
 def main(args):
-    with open(args.pickled_embedding, 'rb') as fin:
-        wv = pickle.load(fin)
-    senti_words = SentiWordSet(args.senti_words).to_index(wv)
-    offsets = [0] + list(accumulate([len(t) for t in senti_words.wordsets]))
-    word_idx = sum(senti_words.wordsets, [])
+    dic = load_model(args.W)
+    W_src = dic['W_source']
+    W_trg = dic['W_target']
+    src_lang = dic['source_lang']
+    trg_lang = dic['target_lang']
+    model = dic['model']
+    with open('pickle/%s.bin' % src_lang, 'rb') as fin:
+        src_wv = pickle.load(fin)
+    with open('pickle/%s.bin' % trg_lang, 'rb') as fin:
+        trg_wv = pickle.load(fin)
+    src_senti_words = SentiWordSet('categories/categories.%s' % src_lang).to_index(src_wv)
+    trg_senti_words = SentiWordSet('categories/categories.%s' % trg_lang).to_index(trg_wv)
+    src_offsets = [0] + list(accumulate([len(t) for t in src_senti_words.wordsets]))
+    trg_offsets = [0] + list(accumulate([len(t) for t in trg_senti_words.wordsets]))
+    src_word_idx = sum(src_senti_words.wordsets, [])
+    trg_word_idx = sum(trg_senti_words.wordsets, [])
 
-    if args.model == 'ubise_source':
-        if args.W != '':
-            with open(args.W, 'rb') as fin:
-                W, _ = pickle.load(fin)
-            proj_emb = np.dot(wv.embedding, W)
-            length_normalize(proj_emb, inplace=True)
-        else:
-            proj_emb = wv.embedding
-    elif args.model == 'ubise_target':
-        if args.W != '':
-            with open(args.W, 'rb') as fin:
-                _, W = pickle.load(fin)
-            proj_emb = np.dot(wv.embedding, W)
-            length_normalize(proj_emb, inplace=True)
-        else:
-            proj_emb = wv.embedding
-    elif args.model == 'blse':
-        W = load_W_source(args.W)
-        proj_emb = np.dot(wv.embedding, W)
+    if model == 'ubise':
+        src_proj_emb = np.dot(src_wv.embedding, W_src)
+        trg_proj_emb = np.dot(trg_wv.embedding, W_trg)
+        length_normalize(src_proj_emb, inplace=True)
+        length_normalize(trg_proj_emb, inplace=True)
+    elif model == 'ubi':
+        src_proj_emb = np.dot(src_wv.embedding, W_src)
+        trg_proj_emb = np.dot(trg_wv.embedding, W_trg)
 
-    X = proj_emb[word_idx]
     fig, ax = plt.subplots()
+
+    X = src_proj_emb[src_word_idx]
+    ax = fig.add_subplot(121)
     X = TSNE(2, verbose=2).fit_transform(X)
-    for i, label in enumerate(senti_words.labels):
-        tmp = X[offsets[i]:offsets[i + 1]]
+    for i, label in enumerate(src_senti_words.labels):
+        tmp = X[src_offsets[i]:src_offsets[i + 1]]
         ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
     ax.legend()
-    fig.set_size_inches(9, 8)
+    ax.set_title(args.W + '-source')
+
+    X = trg_proj_emb[trg_word_idx]
+    ax = fig.add_subplot(122)
+    X = TSNE(2, verbose=2).fit_transform(X)
+    for i, label in enumerate(trg_senti_words.labels):
+        tmp = X[trg_offsets[i]:trg_offsets[i + 1]]
+        ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
+    ax.legend()
+    ax.set_title(args.W + '-target')
+
+    fig.set_size_inches(20, 8)
     fig.savefig(args.output)
 
 
@@ -73,41 +86,6 @@ if __name__ == '__main__':
                         help='W_src and W_trg')
     parser.add_argument('output',
                         help='output file')
-    parser.add_argument('-pe', '--pickled_embedding',
-                        default='./pickle/en.bin',
-                        help='pickled WordVecs object')
-    parser.add_argument('-sw', '--senti_words',
-                        type=str,
-                        default='./categories/categories.en',
-                        help='sentiment words')
-    parser.add_argument('--model',
-                        choices=['ubise_target', 'ubise_source', 'blse'],
-                        default='ubise_target',
-                        help='bilingual model')
-
-    lang_group = parser.add_mutually_exclusive_group()
-    lang_group.add_argument('--en',
-                            action='store_true',
-                            help='pre-plot en')
-    lang_group.add_argument('--es',
-                            action='store_true',
-                            help='pre-plot es')
-    lang_group.add_argument('--ca',
-                            action='store_true',
-                            help='pre-plot ca')
-    lang_group.add_argument('--eu',
-                            action='store_true',
-                            help='pre-plot eu')
-    args = parser.parse_args()
-
-    if args.en:
-        parser.set_defaults(pickled_embedding='pickle/en.bin', senti_words='categories/categories.en')
-    elif args.es:
-        parser.set_defaults(pickled_embedding='pickle/es.bin', senti_words='categories/categories.es')
-    elif args.ca:
-        parser.set_defaults(pickled_embedding='pickle/ca.bin', senti_words='categories/categories.ca')
-    elif args.eu:
-        parser.set_defaults(pickled_embedding='pickle/eu.bin', senti_words='categories/categories.eu')
 
     args = parser.parse_args()
     main(args)
