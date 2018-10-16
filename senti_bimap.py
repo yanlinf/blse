@@ -20,8 +20,9 @@ def get_pos_neg_vecs(X, y):
     return xpos, xneg
 
 
-def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward', orthogonal=False,
-                              normalize=False, spectral=False, threshold=1., learning_rate=0):
+def get_projection_with_senti(X_src, X_trg, alpha, pos=None, neg=None, pos1=None, pos2=None, neg1=None, neg2=None,
+                              direction='forward', orthogonal=False, normalize=False, spectral=False,
+                              threshold=1., learning_rate=0):
     xp = get_array_module(X_src, X_trg, pos, neg)
     logging.debug('alpha: %.4f' % alpha)
     if orthogonal:
@@ -31,40 +32,53 @@ def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward'
         elif direction == 'backward':
             u, s, vt = xp.linalg.svd(xp.dot(X_src.T, X_trg))
             W = xp.dot(vt.T, u.T)
-    elif spectral and learning_rate > 0:
+    elif learning_rate > 0:
         if direction == 'forward':
-            W = xp.linalg.pinv(X_src.T.dot(X_src) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_src.T.dot(X_trg))
-            W = proj_spectral(W)
+            W = xp.linalg.pinv(X_src.T.dot(X_src) -
+                               alpha * (pos - neg).T.dot(pos - neg) +
+                               alpha * (pos1 - pos2).T.dot(pos1 - pos1) +
+                               alpha * (neg1 - neg2).T.dot(neg1 - neg2)).dot(X_src.T.dot(X_trg))
+            if spectral:
+                W = proj_spectral(W)
             prev_loss = float('inf')
             for i in range(20):
-                loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_src.dot(W) - X_trg)
+                loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + \
+                    xp.linalg.norm(X_src.dot(W) - X_trg) + \
+                    alpha * xp.linalg.norm((pos1 - pos2).dot(W)) + \
+                    alpha * xp.linalg.norm((neg1 - neg2).dot(W))
                 logging.debug('loss: %.4f' % loss)
-                if prev_loss - loss < 0.1:
+                if prev_loss - loss < 0.05:
                     break
                 else:
                     prev_loss = loss
-                grad = 2 * (-alpha * (pos - neg).T.dot(pos - neg) + X_src.T.dot(X_src)).dot(W) - 2 * X_src.T.dot(X_trg)
+                grad = 2 * (-alpha * (pos - neg).T.dot(pos - neg) +
+                            X_src.T.dot(X_src) +
+                            alpha * (pos1 - pos2).T.dot(pos1 - pos2) +
+                            alpha * (neg1 - neg2).T.dot(neg1 - neg2)).dot(W) - 2 * X_src.T.dot(X_trg)
                 W -= learning_rate * grad
-                W = proj_spectral(W)
+                if spectral:
+                    W = proj_spectral(W)
         elif direction == 'backward':
-            W = xp.linalg.pinv(X_trg.T.dot(X_trg) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_trg.T.dot(X_src))
-            W = proj_spectral(W)
+            W = xp.linalg.pinv(X_trg.T.dot(X_trg)).dot(X_trg.T.dot(X_src))
+            if spectral:
+                W = proj_spectral(W)
             prev_loss = float('inf')
             for i in range(20):
-                loss = -alpha * xp.linalg.norm((pos - neg).dot(W)) + xp.linalg.norm(X_trg.dot(W) - X_src)
+                loss = xp.linalg.norm(X_trg.dot(W) - X_src)
                 logging.debug('loss: %.4f' % loss)
-                if prev_loss - loss < 0.1:
+                if prev_loss - loss < 0.05:
                     break
                 else:
                     prev_loss = loss
-                grad = 2 * (-alpha * (pos - neg).T.dot(pos - neg) + X_trg.T.dot(X_trg)).dot(W) - 2 * X_trg.T.dot(X_src)
+                grad = 2 * (X_trg.T.dot(X_trg)).dot(W) - 2 * X_trg.T.dot(X_src)
                 W -= learning_rate * grad
-                W = proj_spectral(W)
+                if spectral:
+                    W = proj_spectral(W)
     else:
         if direction == 'forward':
             W = xp.linalg.pinv(X_src.T.dot(X_src) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_src.T.dot(X_trg))
         elif direction == 'backward':
-            W = xp.linalg.pinv(X_trg.T.dot(X_trg) - alpha * (pos - neg).T.dot(pos - neg)).dot(X_trg.T.dot(X_src))
+            W = xp.linalg.pinv(X_trg.T.dot(X_trg)).dot(X_trg.T.dot(X_src))
 
         if spectral:
             W = proj_spectral(W, threshold=threshold)
@@ -144,7 +158,9 @@ def main(args):
             X_src = bdi_obj.src_emb[curr_dict[:, 0]]
             X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
             xpos, xneg = sample(src_pos, src_neg, args.senti_nsample)
-            W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, alpha, 'forward', args.orthogonal,
+            xpos1, xpos2 = sample(src_pos, src_pos, args.pos_nsample)
+            xneg1, xneg2 = sample(src_neg, src_neg, args.neg_nsample)
+            W_src = get_projection_with_senti(X_src, X_trg, alpha, xpos, xneg, xpos1, xpos2, xneg1, xneg2, 'forward', args.orthogonal,
                                               args.normalize_W, args.spectral, args.threshold,
                                               learning_rate=args.learning_rate)
             logging.debug('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
@@ -154,9 +170,9 @@ def main(args):
         elif epoch % 2 == 1:
             X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
             X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
-            xpos, xneg = sample(trg_pos, trg_neg, args.senti_nsample)
-            W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, (0 if args.no_target_senti else alpha), 'backward',
-                                              args.orthogonal, False, args.spectral, args.threshold, learning_rate=args.learning_rate)
+            W_trg = get_projection_with_senti(X_src, X_trg, alpha=0, direction='backward', orthogonal=args.orthogonal,
+                                              normalize=False, spectral=args.spectral, threshold=args.threshold,
+                                              learning_rate=args.learning_rate)
             logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
             bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, scale=args.scale)
             if args.scale:
@@ -174,7 +190,10 @@ def main(args):
             keep_prob = min(1., keep_prob + args.dropout_step)
 
         # update alpha
-        alpha = min(args.alpha_factor * alpha, args.alpha)
+        if args.alpha_inc:
+            alpha = min(args.alpha_step + alpha, args.alpha)
+        else:
+            alpha = min(args.alpha_factor * alpha, args.alpha)
 
         # valiadation
         if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
@@ -187,16 +206,19 @@ def main(args):
     log_file.close()
 
     # save W_trg
-    save_model(asnumpy(W_src), asnumpy(W_trg), args.model, args.save_path)
+    save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
+               args.target_lang, args.model, args.save_path)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     training_group = parser.add_argument_group()
-    training_group.add_argument('--model', choices=['ubi', 'ubiset', 'ubise'], help='model type')
+    training_group.add_argument('--source_lang', default='en', help='source language')
+    training_group.add_argument('--target_lang', default='es', help='target language')
+    training_group.add_argument('--model', choices=['ubi', 'ubise'], help='model type')
     training_group.add_argument('-e', '--epochs', default=500, type=int, help='training epochs (default: 500)')
-    training_group.add_argument('-bs', '--batch_size', default=5000, type=int, help='training batch size (default: 10000)')
+    training_group.add_argument('-bs', '--batch_size', default=3000, type=int, help='training batch size (default: 3000)')
     training_group.add_argument('-vbs', '--val_batch_size', default=500, type=int, help='training batch size (default: 300)')
     training_group.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
     training_group.add_argument('--no_proj_error', action='store_true', help='disable proj error monitoring')
@@ -234,13 +256,21 @@ if __name__ == '__main__':
     mapping_group.add_argument('--scale', action='store_true', help='scale embedding after projecting')
     mapping_group.add_argument('--threshold', type=float, default=1., help='thresholding the singular value of W')
     mapping_group.add_argument('--normalize_W', action='store_true', help='add f-norm restriction on W')
-    mapping_group.add_argument('-n', '--senti_nsample', type=int, default=200, help='sentiment examples')
     mapping_group.add_argument('--no_target_senti', action='store_true', help='no target sentiment')
 
+    senti_sample_group = parser.add_argument_group()
+    senti_sample_group.add_argument('-n', '--senti_nsample', type=int, default=200, help='sentiment examples')
+    senti_sample_group.add_argument('--pos_nsample', type=int, default=100, help='positive examples')
+    senti_sample_group.add_argument('--neg_nsample', type=int, default=100, help='negative examples')
+
     alpha_group = parser.add_argument_group()
-    alpha_group.add_argument('-a', '--alpha', type=float, default=0.1, help='trade-off between sentiment and alignment')
+    alpha_group.add_argument('-a', '--alpha', type=float, default=5, help='trade-off between sentiment and alignment')
     alpha_group.add_argument('--alpha_init', type=float, default=0.1, help='initial value of alpha')
     alpha_group.add_argument('--alpha_factor', type=float, default=1.01, help='multiply alpha by a factor each epoch')
+    alpha_group.add_argument('--alpha_step', type=float, default=0.02, help='multiply alpha by a factor each epoch')
+    alpha_update = alpha_group.add_mutually_exclusive_group()
+    alpha_update.add_argument('--alpha_inc', action='store_true', help='increase alpha by a step each epoch')
+    alpha_update.add_argument('--alpha_mul', action='store_true', help='multiply alpha by a factor each epoch')
 
     induction_group = parser.add_argument_group()
     induction_group.add_argument('-vc', '--vocab_cutoff', default=10000, type=int, help='restrict the vocabulary to k most frequent words')
@@ -277,16 +307,17 @@ if __name__ == '__main__':
                             normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised100.csv')
     elif args.senti:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
-                            vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1.,
+                            vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=False, threshold=1.,
                             learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=False,
-                            dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000, model='ubiset',
+                            dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000, model='ubise',
                             normalize_projection=True)
     elif args.ubise:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
-                            vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1.,
-                            learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=False,
+                            vocab_cutoff=10000, alpha=5, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1.,
+                            learning_rate=0.001, alpha_init=0.1, alpha_step=0.02, alpha_inc=True,
+                            no_proj_error=False,
                             dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000,
-                            no_target_senti=True, model='ubise', normalize_projection=True)
+                            no_target_senti=True, model='ubise', normalize_projection=True,)
     elif args.unconstrained:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', scorer='euclidean', scale=True)
@@ -294,19 +325,22 @@ if __name__ == '__main__':
     if args.en_es:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/es.bin' if args.pickle else 'emb/wiki.es.vec'
-        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+        parser.set_defaults(source_lang='en', target_lang='es',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-es.txt')
     elif args.en_ca:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
-        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+        parser.set_defaults(source_lang='en', target_lang='ca',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-ca.txt')
     elif args.en_eu:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
-        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+        parser.set_defaults(source_lang='en', target_lang='eu',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-eu.txt')
 
