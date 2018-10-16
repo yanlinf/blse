@@ -13,48 +13,48 @@ from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
 from utils.cupy_utils import *
+from utils.model import *
 
 @ignore_warnings(category=ConvergenceWarning)
 @ignore_warnings(category=UndefinedMetricWarning)
 def main(args):
     print(str(args))
 
-    if args.pickle:
-        with open(args.source_embedding, 'rb') as fin:
-            src_wv = pickle.load(fin)
-        with open(args.target_embedding, 'rb') as fin:
-            trg_wv = pickle.load(fin)
-    else:
-        src_wv = WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
-        trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
-    src_proj_emb = np.empty(src_wv.embedding.shape, dtype=np.float32)
-    trg_proj_emb = np.empty(trg_wv.embedding.shape, dtype=np.float32)
-
     if args.output != '':
         with open(args.output, 'w', encoding='utf-8') as fout:
             fout.write('infile,is_binary,f1_macro,best_C\n')
     for infile in args.W:
-        if args.model == 'ubise':
-            with open(infile, 'rb') as fin:
-                W_src, W_trg = pickle.load(fin)
+        dic = load_model(infile)
+        W_src = dic['W_source']
+        W_trg = dic['W_target']
+        src_lang = dic['source_lang']
+        trg_lang = dic['target_lang']
+        model = dic['model']
+        with open('pickle/%s.bin' % src_lang, 'rb') as fin:
+            src_wv = pickle.load(fin)
+        with open('pickle/%s.bin' % trg_lang, 'rb') as fin:
+            trg_wv = pickle.load(fin)
+        src_proj_emb = np.empty(src_wv.embedding.shape, dtype=np.float32)
+        trg_proj_emb = np.empty(trg_wv.embedding.shape, dtype=np.float32)
+        if model == 'ubise':
             src_wv.embedding.dot(W_src, out=src_proj_emb)
             length_normalize(src_proj_emb, inplace=True)
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
             length_normalize(trg_proj_emb, inplace=True)
-        elif args.model == 'ubi':
-            with open(infile, 'rb') as fin:
-                W_trg = pickle.load(fin)
+        elif model == 'ubi':
             src_proj_emb = src_wv.embedding
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
 
         for is_binary in (True, False):
-            src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
-            trg_ds = SentimentDataset(args.target_dataset).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
+            src_ds = SentimentDataset('datasets/%s/opener_sents/' % src_lang).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
+            trg_ds = SentimentDataset('datasets/%s/opener_sents/' % trg_lang).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
             train_x = np.concatenate((src_ds.train[0], src_ds.dev[0], src_ds.test[0]), axis=0)
             train_y = np.concatenate((src_ds.train[1], src_ds.dev[1], src_ds.test[1]), axis=0)
+            # train_x = src_ds.train[0]
+            # train_y = src_ds.train[1]
             test_x = trg_ds.train[0]
             test_y = trg_ds.train[1]
-            if args.C >= 0:
+            if args.C is not None:
                 clf = svm.LinearSVC(C=args.C)
             else:
                 param_grid = {
@@ -64,7 +64,7 @@ def main(args):
                 clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count())
             clf.fit(train_x, train_y)
             test_score = f1_score(test_y, clf.predict(test_x), average='macro')
-            best_C = args.C if args.C >= 0 else clf.best_params_['C']
+            best_C = args.C if args.C is not None else clf.best_params_['C']
             print('------------------------------------------------------')
             print('Is binary: {0}'.format(is_binary))
             print('Result for {0}:'.format(infile))
@@ -82,43 +82,11 @@ if __name__ == '__main__':
                         default=['checkpoints/senti.bin'],
                         help='W_src and W_trg')
     parser.add_argument('-C', '--C',
-                        default=-1,
                         type=float,
                         help='train svm with fixed C')
-    parser.add_argument('--lang',
-                        default='-',
-                        help='language_pair')
-    parser.add_argument('--model',
-                        choices=['ubise', 'ubi'],
-                        default='ubise',
-                        help='model type')
-    parser.add_argument('--format',
-                        choices=['word2vec_bin', 'fasttext_text'],
-                        default='fasttext_text',
-                        help='word embedding format')
-    parser.add_argument('-se', '--source_embedding',
-                        default='./emb/en.bin',
-                        help='monolingual word embedding of the source language (default: ./emb/en.bin)')
-    parser.add_argument('-te', '--target_embedding',
-                        default='./emb/es.bin',
-                        help='monolingual word embedding of the target language (default: ./emb/es.bin)')
-    parser.add_argument('-sd', '--source_dataset',
-                        default='./datasets/en/opener_sents/',
-                        help='source sentiment dataset')
-    parser.add_argument('-td', '--target_dataset',
-                        default='./datasets/es/opener_sents/',
-                        help='target sentiment dataset')
-    parser.add_argument('--normalize',
-                        choices=['unit', 'center'],
-                        nargs='*',
-                        default=['center', 'unit'],
-                        help='normalization actions')
     parser.add_argument('-o', '--output',
                         default='',
                         help='output file')
-    parser.add_argument('--pickle',
-                        action='store_true',
-                        help='load from pickled object')
     parser.add_argument('--debug',
                         action='store_const',
                         dest='loglevel',
@@ -126,32 +94,6 @@ if __name__ == '__main__':
                         const=logging.DEBUG,
                         help='print debug info')
 
-    lang_group = parser.add_mutually_exclusive_group()
-    lang_group.add_argument('--en_es', action='store_true', help='train english-spanish embedding')
-    lang_group.add_argument('--en_ca', action='store_true', help='train english-catalan embedding')
-    lang_group.add_argument('--en_eu', action='store_true', help='train english-basque embedding')
-
-    args = parser.parse_args()
-
-
-    if args.en_es:
-        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
-        trg_emb_file = 'pickle/es.bin' if args.pickle else 'emb/wiki.es.vec'
-        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
-                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
-                            lang='en-es')
-    elif args.en_ca:
-        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
-        trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
-        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
-                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
-                            lang='en-ca')
-    elif args.en_eu:
-        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
-        trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
-        parser.set_defaults(source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
-                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
-                            lang='en-eu')
 
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel, format='%(asctime)s: %(message)s')
