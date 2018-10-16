@@ -6,10 +6,12 @@ author: fyl
 import pickle
 import os
 
-def save_model(W_src, W_trg, model_type, path):
+def save_model(W_src, W_trg, src_lang, trg_lang, model_type, path):
     dic = {
         "W_source": W_src,
         "W_target": W_trg,
+        "source_lang": src_lang,
+        "target_lang": trg_lang,
         "model": model_type,
     }
     directory = os.path.dirname(path)
@@ -20,6 +22,6 @@ def save_model(W_src, W_trg, model_type, path):
 
 
 def load_model(path):
-    with open(path, 'rb') as fout:
-        dic = pickle.dump(dic, fout)
-    return dic['W_source'], dic['W_target'], dic['model']
+    with open(path, 'rb') as fin:
+        dic = pickle.load(fin)
+    return dic
