@@ -8,6 +8,8 @@ from .cupy_utils import *
 
 
 NORM_BATCH_SIZE = 200000
+SORT_BATCH_SIZE = 10000
+DOT_BATCH_SIZE = 100000
 
 
 def l2norm(X):
@@ -117,6 +119,8 @@ def dropout(X, keep_prob, inplace=True):
     Returns: np.ndarray (or cupy.ndarray)
     """
     xp = get_array_module(X)
+    if keep_prob >= 1.:
+        return X if inplace else X.copy()
     mask = xp.random.rand(*X.shape) < keep_prob
     if inplace:
         X *= mask
@@ -137,3 +141,37 @@ def sample(X, Y, num_sample):
     x_idx = xp.random.randint(0, X.shape[0], num_sample)
     y_idx = xp.random.randint(0, Y.shape[0], num_sample)
     return X[x_idx], Y[y_idx]
+
+
+def sort(X, axis):
+    """
+    equivalent to np.linalg.norm
+
+    X: ndarray of rank 2
+
+    returns: ndarray of shape (X.shape[0],)
+    """
+    xp = get_array_module(X)
+    xsize = X.shape[0]
+    for i in range(0, xsize, SORT_BATCH_SIZE):
+        j = min(xsize, i + SORT_BATCH_SIZE)
+        X[i:j].sort(axis=axis)
+
+
+def matmul(X, Y, out=None):
+    """
+    equivalent to np.matmul
+
+    X: ndarray of rank 2
+    Y: ndarray of rank 2
+
+    returns X @ Y
+    """
+    if out is None:
+        raise ValueError('"out" cannot be None')
+    xp = get_array_module(X)
+    xsize = X.shape[0]
+    for i in range(0, xsize, DOT_BATCH_SIZE):
+        j = min(xsize, i + DOT_BATCH_SIZE)
+        xp.dot(X[i:j], out=out[i:j])
+    return res
