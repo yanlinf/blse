@@ -36,7 +36,7 @@ def get_projection_with_senti(X_src, X_trg, alpha, pos=None, neg=None, pos1=None
         if direction == 'forward':
             W = xp.linalg.pinv(X_src.T.dot(X_src) -
                                alpha * (pos - neg).T.dot(pos - neg) +
-                               alpha * (pos1 - pos2).T.dot(pos1 - pos1) +
+                               alpha * (pos1 - pos2).T.dot(pos1 - pos2) +
                                alpha * (neg1 - neg2).T.dot(neg1 - neg2)).dot(X_src.T.dot(X_trg))
             if spectral:
                 W = proj_spectral(W)
@@ -136,9 +136,9 @@ def main(args):
         init_dict = xp.array(BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
 
     if args.load is not None:
-        W_src, W_trg, model_type = load_model(args.load)
-        W_src = xp.array(W_src)
-        W_trg = xp.array(W_trg)
+        dic = load_model(args.load)
+        W_src = xp.array(dic['W_source'])
+        W_trg = xp.array(dic['W_target'])
     else:
         W_src = W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
 
