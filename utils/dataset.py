@@ -11,6 +11,7 @@ import collections
 import sys
 import os
 from .cupy_utils import *
+from .math import *
 
 
 class WordVecs(object):
