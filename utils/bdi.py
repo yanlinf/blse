@@ -3,6 +3,7 @@ bilingual dictionary induction helpers
 
 author: fyl
 """
+import numpy as np
 from .cupy_utils import *
 from .math import *
 
@@ -77,6 +78,22 @@ def get_unsupervised_init_dict(src_emb, trg_emb, cutoff_size, csls, norm_actions
     return init_dict
 
 
+class VIArray(object):
+
+    def __init__(self, X, vocab):
+        if vocab.shape[0] != X.shape[0]:
+            raise ValueError('Array sizes do not match')
+        xp = get_array_module(X, vocab)
+        self.vocab = vocab.copy()
+        self.X = X.copy()
+        nmax = int(self.vocab.max())
+        self.translate = xp.full(nmax + 1, nmax + 1, dtype=xp.int32)
+        self.translate[self.vocab] = xp.arange(self.vocab.shape[0])
+
+    def __getitem__(self, key):
+        return self.X[self.translate[key]]
+
+
 class BDI(object):
     """
     Helper class for bilingual dictionary induction.
@@ -89,16 +106,17 @@ class BDI(object):
     scorer: str, (dot / cos / euclidean)
     """
 
-    def __init__(self, src_emb, trg_emb, batch_size=5000, cutoff_size=10000, cutoff_type='both', direction=None, csls=10, batch_size_val=1000, scorer='dot'):
+    def __init__(self, src_emb, trg_emb, batch_size=5000, cutoff_size=10000, cutoff_type='both',
+                 direction=None, csls=10, batch_size_val=1000, scorer='dot',
+                 src_val_ind=None, trg_val_ind=None):
         if cutoff_type == 'oneway' and csls > 0:
             raise ValueEror("cutoff_type='both' and csls > 0 not supported")  # TODO
         if scorer not in ('dot', 'cos', 'euclidean'):
             raise ValueError('Invalid scorer: %s' % scorer)
 
-        xp = get_array_module(src_emb, trg_emb)
+        xp = get_array_module(src_emb, trg_emb, src_val_ind, trg_val_ind)
         self.xp = xp
-        self.src_emb = src_emb
-        self.trg_emb = trg_emb
+        self.trg_emb = xp.array(trg_emb)
         self.batch_size = batch_size
         self.cutoff_size = cutoff_size
         self.cutoff_type = cutoff_type
@@ -107,12 +125,23 @@ class BDI(object):
         self.batch_size_val = batch_size_val
         self.scorer = scorer
 
-        self.src_proj_emb = self.src_emb[:self.cutoff_size].copy()
-        self.trg_proj_emb = self.trg_emb.copy()
-        self.W_src = self.W_trg = xp.identity(src_emb.shape[1], dtype=xp.float32)
-
         self.src_size = src_emb.shape[0]
         self.trg_size = trg_emb.shape[0]
+        self.W_src = self.W_trg = xp.identity(src_emb.shape[1], dtype=xp.float32)
+
+        if src_val_ind is None:
+            src_val_ind = xp.arange(src_size)
+        src_val_ind = np.union1d(asnumpy(src_val_ind), np.arange(self.cutoff_size))
+        if trg_val_ind is None:
+            trg_val_ind = xp.arange(trg_size)
+        trg_val_ind = np.union1d(asnumpy(trg_val_ind), np.arange(self.cutoff_size))
+        self.src_val_ind = xp.array(src_val_ind)
+        self.trg_val_ind = xp.array(trg_val_ind)
+
+        self.src_emb = VIArray(xp.array(src_emb[src_val_ind]), xp.array(src_val_ind))
+        self.src_proj_emb = VIArray(xp.array(src_emb[src_val_ind]), xp.array(src_val_ind))
+        self.trg_proj_emb = self.trg_emb.copy()
+
         if direction in ('forward', 'union') or csls > 0:
             self.fwd_src_size = cutoff_size
             self.fwd_trg_size = cutoff_size if cutoff_type == 'both' else trg_size
@@ -151,24 +180,32 @@ class BDI(object):
         """
         xp = self.xp
         if direction == 'forward':
-            xp.dot(self.src_emb[:self.cutoff_size], W, out=self.src_proj_emb)
+            xp.dot(self.src_emb.X, W, out=self.src_proj_emb.X)
             self.W_src = W.copy()
             if unit_norm:
-                length_normalize(self.src_proj_emb, inplace=True)
+                length_normalize(self.src_proj_emb.X, inplace=True)
             if scale:
                 avr_norm = xp.mean(l2norm(self.src_proj_emb[:self.cutoff_size]))
                 self.src_factor = self.src_avr_norm / avr_norm
-                self.src_proj_emb *= self.src_factor
+                self.src_proj_emb.X *= self.src_factor
         else:
-            proj_size = self.trg_size if full_trg else self.cutoff_size
-            xp.dot(self.trg_emb[:proj_size], W, out=self.trg_proj_emb[:proj_size])
+            # proj_size = self.trg_size if full_trg else self.cutoff_size
+            proj_ind = xp.arange(self.trg_size) if full_trg else self.trg_val_ind
+            if full_trg:
+                # matmul(self.trg_emb[proj_ind], W, out=self.trg_proj_emb[proj_ind])
+                xp.dot(self.trg_emb, W, out=self.trg_proj_emb)
+            else:
+                self.trg_proj_emb[proj_ind] = xp.dot(self.trg_emb[proj_ind], W)
             self.W_trg = W.copy()
             if unit_norm:
-                length_normalize(self.trg_proj_emb[:proj_size], inplace=True)
+                if full_trg:
+                    length_normalize(self.trg_proj_emb, inplace=True)
+                else:
+                    self.trg_proj_emb[proj_ind] = length_normalize(self.trg_proj_emb[proj_ind], inplace=False)
             if scale:
                 avr_norm = xp.mean(l2norm(self.trg_proj_emb[:self.cutoff_size]))
                 self.trg_factor = self.trg_avr_norm / avr_norm
-                self.trg_proj_emb[:proj_size] *= self.trg_factor
+                self.trg_proj_emb[proj_ind] *= self.trg_factor
         return self
 
     def get_bilingual_dict_with_cutoff(self, keep_prob=1.):
@@ -237,7 +274,7 @@ class BDI(object):
         xp = self.xp
         size = src_ind.shape[0]
         trg_ind = xp.empty(size, dtype=xp.int32)
-        xsrc = xp.dot(self.src_emb[src_ind], self.W_src)
+        xsrc = self.src_proj_emb[src_ind]
         if self.scorer in ('cos', 'euclidean'):
             xp.sum(self.trg_proj_emb**2, axis=1, out=self.trg_sqr_norm)
             self.trg_sqr_norm[self.trg_sqr_norm == 0] = 1
