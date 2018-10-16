@@ -4,6 +4,9 @@ math helpers
 author: fyl
 """
 
+from .cupy_utils import *
+
+
 NORM_BATCH_SIZE = 200000
 
 
@@ -120,3 +123,17 @@ def dropout(X, keep_prob, inplace=True):
     else:
         X = X * mask
     return X
+
+
+def sample(X, Y, num_sample):
+    """
+    X: ndarray
+    Y: ndarray
+    num_sample: int
+
+    Returns: ndarray
+    """
+    xp = get_array_module(X, Y)
+    x_idx = xp.random.randint(0, X.shape[0], num_sample)
+    y_idx = xp.random.randint(0, Y.shape[0], num_sample)
+    return X[x_idx], Y[y_idx]
