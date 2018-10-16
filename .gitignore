@@ -1,4 +1,5 @@
 # Poject specific
+pickle/
 *.json
 backup/
 log/
