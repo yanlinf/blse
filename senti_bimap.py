@@ -20,7 +20,8 @@ def get_pos_neg_vecs(X, y):
     return xpos, xneg
 
 
-def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward', orthogonal=False, normalize=False, spectral=False, threshold=1., learning_rate=0):
+def get_projection_with_senti(X_src, X_trg, pos, neg, alpha, direction='forward', orthogonal=False,
+                              normalize=False, spectral=False, threshold=1., learning_rate=0):
     xp = get_array_module(X_src, X_trg, pos, neg)
     logging.debug('alpha: %.4f' % alpha)
     if orthogonal:
@@ -99,8 +100,6 @@ def main(args):
     else:
         src_wv = WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
         trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
-    src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
-    trg_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
     src_ds = SentimentDataset(args.source_dataset).to_index(src_wv).to_vecs(src_wv.embedding)
     trg_ds = SentimentDataset(args.target_dataset).to_index(trg_wv).to_vecs(trg_wv.embedding)
     src_pos, src_neg = get_pos_neg_vecs(xp.array(src_ds.train[0]), xp.array(src_ds.train[1]))
@@ -114,13 +113,13 @@ def main(args):
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
     elif args.init_unsupervised:
-        init_dict = get_unsupervised_init_dict(src_emb, trg_emb, args.vocab_cutoff, args.csls, args.normalize, args.direction)
+        init_dict = get_unsupervised_init_dict(src_wv.embedding, trg_wv.embedding, args.vocab_cutoff, args.csls, args.normalize, args.direction)
+        init_dict = xp.array(init_dict)
     elif args.init_random:
         size = args.vocab_cutoff * 2 if args.direction == 'both' else args.vocab_cutoff
         init_dict = xp.stack((xp.arange(size), xp.random.permutation(size)), axis=1)
     else:
         init_dict = xp.array(BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
-    del src_wv, trg_wv
 
     if args.load is not None:
         W_src, W_trg, model_type = load_model(args.load)
@@ -129,11 +128,12 @@ def main(args):
     else:
         W_src = W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
 
-    bdi_obj = BDI(src_emb, trg_emb, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
-                  direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer=args.scorer)
-    bdi_obj.project(W_src, 'forward', unit_norm=args.spectral)
+    bdi_obj = BDI(src_wv.embedding, trg_wv.embedding, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
+                  direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer=args.scorer,
+                  src_val_ind=gold_dict[:, 0], trg_val_ind=gold_dict[:, 1])
+    bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
     bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral)
-    curr_dict = init_dict if args.load == '' else bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
+    curr_dict = init_dict if args.load is None else bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
     # self learning
     for epoch in range(args.epochs):
@@ -141,42 +141,33 @@ def main(args):
         logging.debug('alhpa: %.4f' % alpha)
 
         if epoch % 2 == 0:
-            X_src = src_emb[curr_dict[:, 0]]
+            X_src = bdi_obj.src_emb[curr_dict[:, 0]]
             X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
             xpos, xneg = sample(src_pos, src_neg, args.senti_nsample)
-            W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, alpha, 'forward', args.orthogonal, args.normalize_W, args.spectral, args.threshold, learning_rate=args.learning_rate)
+            W_src = get_projection_with_senti(X_src, X_trg, xpos, xneg, alpha, 'forward', args.orthogonal,
+                                              args.normalize_W, args.spectral, args.threshold,
+                                              learning_rate=args.learning_rate)
             logging.debug('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
-            bdi_obj.project(W_src, 'forward', unit_norm=args.spectral or args.test, scale=args.scale)
+            bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection, scale=args.scale)
             if args.scale:
                 W_src *= bdi_obj.src_factor
         elif epoch % 2 == 1:
             X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
-            X_trg = trg_emb[curr_dict[:, 1]]
+            X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
             xpos, xneg = sample(trg_pos, trg_neg, args.senti_nsample)
             W_trg = get_projection_with_senti(X_src, X_trg, xpos, xneg, (0 if args.no_target_senti else alpha), 'backward',
                                               args.orthogonal, False, args.spectral, args.threshold, learning_rate=args.learning_rate)
             logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
-            bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral or args.test, scale=args.scale)
+            bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, scale=args.scale)
             if args.scale:
                 W_trg *= bdi_obj.trg_factor
 
         if not args.no_proj_error:
-            if args.spectral or args.test:
-                proj_error = xp.sum((length_normalize(src_emb[gold_dict[:, 0]] @ W_src, False) - length_normalize(trg_emb[gold_dict[:, 1]] @ W_trg, False))**2)
-            else:
-                proj_error = xp.sum((src_emb[gold_dict[:, 0]] @ W_src - trg_emb[gold_dict[:, 1]] @ W_trg)**2)
+            proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
             logging.info('proj error: %.4f' % proj_error)
 
         # dictionary induction
         curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
-
-        if args.test:
-            if epoch % 2 == 0:
-                W_src = proj_spectral(W_src)
-                bdi_obj.project(W_src, 'forward', unit_norm=True)
-            else:
-                W_trg = proj_spectral(W_trg)
-                bdi_obj.project(W_trg, 'backward', unit_norm=True)
 
         # update keep_prob
         if (epoch + 1) % (args.dropout_interval * 2) == 0:
@@ -187,7 +178,7 @@ def main(args):
 
         # valiadation
         if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
-            bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral or args.test, scale=args.scale, full_trg=True)
+            bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, scale=args.scale, full_trg=True)
             val_trg_ind = bdi_obj.get_target_indices(gold_dict[:, 0])
             accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
@@ -205,8 +196,8 @@ if __name__ == '__main__':
     training_group = parser.add_argument_group()
     training_group.add_argument('--model', choices=['ubi', 'ubiset', 'ubise'], help='model type')
     training_group.add_argument('-e', '--epochs', default=500, type=int, help='training epochs (default: 500)')
-    training_group.add_argument('-bs', '--batch_size', default=10000, type=int, help='training batch size (default: 10000)')
-    training_group.add_argument('-vbs', '--val_batch_size', default=300, type=int, help='training batch size (default: 300)')
+    training_group.add_argument('-bs', '--batch_size', default=5000, type=int, help='training batch size (default: 10000)')
+    training_group.add_argument('-vbs', '--val_batch_size', default=500, type=int, help='training batch size (default: 300)')
     training_group.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
     training_group.add_argument('--no_proj_error', action='store_true', help='disable proj error monitoring')
     training_group.add_argument('--valiadation_step', type=int, default=50, help='valiadation frequency')
@@ -238,6 +229,7 @@ if __name__ == '__main__':
     mapping_group.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['center', 'unit'], help='normalization actions')
     mapping_group.add_argument('--orthogonal', action='store_true', help='restrict projection matrix to be orthogonal')
     mapping_group.add_argument('--spectral', action='store_true', help='restrict projection matrix to spectral domain')
+    mapping_group.add_argument('--normalize_projection', action='store_true', help='normalize after projection')
     mapping_group.add_argument('-lr', '--learning_rate', type=float, default=0, help='use gradient descent to solve W')
     mapping_group.add_argument('--scale', action='store_true', help='scale embedding after projecting')
     mapping_group.add_argument('--threshold', type=float, default=1., help='thresholding the singular value of W')
@@ -287,13 +279,14 @@ if __name__ == '__main__':
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1.,
                             learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=False,
-                            dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000, model='ubiset')
+                            dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000, model='ubiset',
+                            normalize_projection=True)
     elif args.ubise:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1.,
                             learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=False,
                             dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000,
-                            no_target_senti=True, debug=True, model='ubise')
+                            no_target_senti=True, model='ubise', normalize_projection=True)
     elif args.unconstrained:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
                             vocab_cutoff=10000, alpha=0.1, senti_nsample=200, log='./log/senti.csv', scorer='euclidean', scale=True)
