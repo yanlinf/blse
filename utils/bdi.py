@@ -3,6 +3,9 @@ bilingual dictionary induction helpers
 
 author: fyl
 """
+from .cupy_utils import *
+from .math import *
+
 
 def get_projection_matrix(X_src, X_trg, orthogonal, direction='forward', out=None):
     """
