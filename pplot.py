@@ -30,62 +30,64 @@ def load_W_source(model_path):
 
 
 def main(args):
-    dic = load_model(args.W)
-    W_src = dic['W_source']
-    W_trg = dic['W_target']
-    src_lang = dic['source_lang']
-    trg_lang = dic['target_lang']
-    model = dic['model']
-    with open('pickle/%s.bin' % src_lang, 'rb') as fin:
-        src_wv = pickle.load(fin)
-    with open('pickle/%s.bin' % trg_lang, 'rb') as fin:
-        trg_wv = pickle.load(fin)
-    src_senti_words = SentiWordSet('categories/categories.%s' % src_lang).to_index(src_wv)
-    trg_senti_words = SentiWordSet('categories/categories.%s' % trg_lang).to_index(trg_wv)
-    src_offsets = [0] + list(accumulate([len(t) for t in src_senti_words.wordsets]))
-    trg_offsets = [0] + list(accumulate([len(t) for t in trg_senti_words.wordsets]))
-    src_word_idx = sum(src_senti_words.wordsets, [])
-    trg_word_idx = sum(trg_senti_words.wordsets, [])
+    for infile in args.W:
+        dic = load_model(infile)
+        W_src = dic['W_source']
+        W_trg = dic['W_target']
+        src_lang = dic['source_lang']
+        trg_lang = dic['target_lang']
+        model = dic['model']
+        with open('pickle/%s.bin' % src_lang, 'rb') as fin:
+            src_wv = pickle.load(fin)
+        with open('pickle/%s.bin' % trg_lang, 'rb') as fin:
+            trg_wv = pickle.load(fin)
+        src_senti_words = SentiWordSet('categories/categories.%s' % src_lang).to_index(src_wv)
+        trg_senti_words = SentiWordSet('categories/categories.%s' % trg_lang).to_index(trg_wv)
+        src_offsets = [0] + list(accumulate([len(t) for t in src_senti_words.wordsets]))
+        trg_offsets = [0] + list(accumulate([len(t) for t in trg_senti_words.wordsets]))
+        src_word_idx = sum(src_senti_words.wordsets, [])
+        trg_word_idx = sum(trg_senti_words.wordsets, [])
 
-    if model == 'ubise':
-        src_proj_emb = np.dot(src_wv.embedding, W_src)
-        trg_proj_emb = np.dot(trg_wv.embedding, W_trg)
-        length_normalize(src_proj_emb, inplace=True)
-        length_normalize(trg_proj_emb, inplace=True)
-    elif model == 'ubi':
-        src_proj_emb = np.dot(src_wv.embedding, W_src)
-        trg_proj_emb = np.dot(trg_wv.embedding, W_trg)
+        if model == 'ubise':
+            src_proj_emb = np.dot(src_wv.embedding, W_src)
+            trg_proj_emb = np.dot(trg_wv.embedding, W_trg)
+            length_normalize(src_proj_emb, inplace=True)
+            length_normalize(trg_proj_emb, inplace=True)
+        elif model == 'ubi':
+            src_proj_emb = np.dot(src_wv.embedding, W_src)
+            trg_proj_emb = np.dot(trg_wv.embedding, W_trg)
 
-    fig, ax = plt.subplots()
+        fig, ax = plt.subplots()
 
-    X = src_proj_emb[src_word_idx]
-    ax = fig.add_subplot(121)
-    X = TSNE(2, verbose=2).fit_transform(X)
-    for i, label in enumerate(src_senti_words.labels):
-        tmp = X[src_offsets[i]:src_offsets[i + 1]]
-        ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
-    ax.legend()
-    ax.set_title(args.W + '-source')
+        X = src_proj_emb[src_word_idx]
+        ax = fig.add_subplot(121)
+        X = TSNE(2, verbose=2).fit_transform(X)
+        for i, label in enumerate(src_senti_words.labels):
+            tmp = X[src_offsets[i]:src_offsets[i + 1]]
+            ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
+        ax.legend()
+        ax.set_title(infile + '-source')
 
-    X = trg_proj_emb[trg_word_idx]
-    ax = fig.add_subplot(122)
-    X = TSNE(2, verbose=2).fit_transform(X)
-    for i, label in enumerate(trg_senti_words.labels):
-        tmp = X[trg_offsets[i]:trg_offsets[i + 1]]
-        ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
-    ax.legend()
-    ax.set_title(args.W + '-target')
+        X = trg_proj_emb[trg_word_idx]
+        ax = fig.add_subplot(122)
+        X = TSNE(2, verbose=2).fit_transform(X)
+        for i, label in enumerate(trg_senti_words.labels):
+            tmp = X[trg_offsets[i]:trg_offsets[i + 1]]
+            ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
+        ax.legend()
+        ax.set_title(infile + '-target')
 
-    fig.set_size_inches(20, 8)
-    fig.savefig(args.output)
+        fig.set_size_inches(20, 8)
+
+        outfile =  'result/'+ infile.split('/')[-1].replace('.bin', '.png')
+        fig.savefig(outfile)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('W',
-                        help='W_src and W_trg')
-    parser.add_argument('output',
-                        help='output file')
+                        nargs='+',
+                        help='W')
 
     args = parser.parse_args()
     main(args)
