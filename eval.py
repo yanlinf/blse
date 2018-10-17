@@ -15,6 +15,7 @@ from utils.bdi import *
 from utils.cupy_utils import *
 from utils.model import *
 
+
 @ignore_warnings(category=ConvergenceWarning)
 @ignore_warnings(category=UndefinedMetricWarning)
 def main(args):
@@ -22,7 +23,7 @@ def main(args):
 
     if args.output != '':
         with open(args.output, 'w', encoding='utf-8') as fout:
-            fout.write('infile,is_binary,f1_macro,best_C\n')
+            fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro,best_C\n')
     for infile in args.W:
         dic = load_model(infile)
         W_src = dic['W_source']
@@ -70,9 +71,12 @@ def main(args):
             print('Result for {0}:'.format(infile))
             print('Test F1_macro: {0:.4f}'.format(test_score))
             print('Best C: {0}'.format(best_C))
-            if args.output != '':
+            if args.output is not None:
                 with open(args.output, 'a', encoding='utf-8') as fout:
-                    fout.write('{0},{1},{2},{3},{4:.4f},{5}\n'.format(args.lang, args.model,infile, is_binary, test_score, clf.best_params_['C']))
+                    fout.write('{0},{1},{2},{3},{4},{5:.4f},{6:.2f}\n'.format(infile, src_lang,
+                                                                              trg_lang, model,
+                                                                              is_binary, test_score,
+                                                                              clf.best_params_['C']))
 
 
 if __name__ == '__main__':
@@ -85,7 +89,6 @@ if __name__ == '__main__':
                         type=float,
                         help='train svm with fixed C')
     parser.add_argument('-o', '--output',
-                        default='',
                         help='output file')
     parser.add_argument('--debug',
                         action='store_const',
@@ -93,7 +96,6 @@ if __name__ == '__main__':
                         default=logging.INFO,
                         const=logging.DEBUG,
                         help='print debug info')
-
 
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel, format='%(asctime)s: %(message)s')
