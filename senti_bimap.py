@@ -265,7 +265,7 @@ if __name__ == '__main__':
 
     alpha_group = parser.add_argument_group()
     alpha_group.add_argument('-a', '--alpha', type=float, default=5, help='trade-off between sentiment and alignment')
-    alpha_group.add_argument('--alpha_init', type=float, default=0.1, help='initial value of alpha')
+    alpha_group.add_argument('--alpha_init', type=float, default=0., help='initial value of alpha')
     alpha_group.add_argument('--alpha_factor', type=float, default=1.01, help='multiply alpha by a factor each epoch')
     alpha_group.add_argument('--alpha_step', type=float, default=0.02, help='multiply alpha by a factor each epoch')
     alpha_update = alpha_group.add_mutually_exclusive_group()
