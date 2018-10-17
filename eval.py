@@ -21,7 +21,7 @@ from utils.model import *
 def main(args):
     print(str(args))
 
-    if args.output != '':
+    if args.output is not None:
         with open(args.output, 'w', encoding='utf-8') as fout:
             fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro,best_C\n')
     for infile in args.W:
