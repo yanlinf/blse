@@ -120,7 +120,7 @@ def main(args):
     trg_pos, trg_neg = get_pos_neg_vecs(xp.array(trg_ds.train[0]), xp.array(trg_ds.train[1]))
     gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     keep_prob = args.dropout_init
-    alpha = min(args.alpha, args.alpha_init)
+    alpha = max(args.alpha, args.alpha_init) if args.alpha_dec else min(args.alpha, args.alpha_init)
 
     logging.info('gold dict shape' + str(gold_dict.shape))
 
@@ -192,7 +192,9 @@ def main(args):
         # update alpha
         if args.alpha_inc:
             alpha = min(args.alpha_step + alpha, args.alpha)
-        else:
+        elif args.alpha_dec:
+            alpha = max(alpha - args.alpha_step, args.alpha)
+        elif args.alpha_mul:
             alpha = min(args.alpha_factor * alpha, args.alpha)
 
         # valiadation
@@ -270,6 +272,7 @@ if __name__ == '__main__':
     alpha_group.add_argument('--alpha_step', type=float, default=0.02, help='multiply alpha by a factor each epoch')
     alpha_update = alpha_group.add_mutually_exclusive_group()
     alpha_update.add_argument('--alpha_inc', action='store_true', help='increase alpha by a step each epoch')
+    alpha_update.add_argument('--alpha_dec', action='store_true', help='decrease alpha by a step each epoch')
     alpha_update.add_argument('--alpha_mul', action='store_true', help='multiply alpha by a factor each epoch')
 
     induction_group = parser.add_argument_group()
