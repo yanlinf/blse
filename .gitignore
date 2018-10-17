@@ -1,4 +1,6 @@
 # Poject specific
+exp*.sh
+nohup.out
 pickle/
 *.json
 backup/
