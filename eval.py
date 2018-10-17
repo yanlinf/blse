@@ -76,7 +76,7 @@ def main(args):
                     fout.write('{0},{1},{2},{3},{4},{5:.4f},{6:.2f}\n'.format(infile, src_lang,
                                                                               trg_lang, model,
                                                                               is_binary, test_score,
-                                                                              clf.best_params_['C']))
+                                                                              best_C))
 
 
 if __name__ == '__main__':
