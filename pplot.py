@@ -14,8 +14,6 @@ from utils.model import *
 
 COLORS = ['b', 'b', 'r', 'g', 'k', 'y', 'c']
 
-np.random.seed(0)
-
 
 def load_W_source(model_path):
     with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
@@ -79,7 +77,7 @@ def main(args):
 
         fig.set_size_inches(20, 8)
 
-        outfile =  'result/'+ infile.split('/')[-1].replace('.bin', '.png')
+        outfile = 'result/' + infile.split('/')[-1].replace('.bin', '.png')
         fig.savefig(outfile)
 
 
@@ -88,6 +86,11 @@ if __name__ == '__main__':
     parser.add_argument('W',
                         nargs='+',
                         help='W')
+    parser.add_argument('--seed',
+                        type=int,
+                        default=0,
+                        help='random seed')
 
     args = parser.parse_args()
+    np.random.seed(args.seed)
     main(args)
