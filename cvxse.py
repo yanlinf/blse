@@ -65,145 +65,147 @@ def main(args):
     curr_dict = init_dict if args.load is None else bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
     # self learning
-    for epoch in range(args.epochs):
-        logging.debug('running epoch %d...' % epoch)
-        logging.debug('alhpa: %.4f' % alpha)
+    try:
+        for epoch in range(args.epochs):
+            logging.debug('running epoch %d...' % epoch)
+            logging.debug('alhpa: %.4f' % alpha)
 
-        if epoch % 2 == 0:
-            if args.loss == 0:
-                m = args.senti_nsample
+            if epoch % 2 == 0:
+                if args.loss == 0:
+                    m = args.senti_nsample
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
+                    ssrc = xp.random.randint(0, xsenti.shape[0], m)
+                    strg = xp.random.randint(0, xsenti.shape[0], m)
+                    if args.sample_type == 'full':
+                        I = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32) * 2 - 1
+                    elif args.sample_type == 'same':
+                        I = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32)
+                    elif args.sample_type == 'pos-neg':
+                        I = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32) - 1
+
+                    U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
+                    U_trg = bdi_obj.src_proj_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
+                    U_src *= I[:, xp.newaxis]
+                    logging.debug('number of samples: {0:d}'.format(U_src.shape[0]))
+                    prev_loss, loss = float('inf'), float('inf')
+                    while prev_loss - loss > 0.05 or loss == float('inf'):
+                        prev_W = W_src.copy()
+                        grad = -X_src.T.dot(X_trg) - (alpha / m) * U_src.T.dot(U_trg)
+                        W_src -= lr * grad
+                        W_src = proj_spectral(W_src)
+                        prev_loss = loss
+                        loss = -(X_src.dot(W_src) * X_trg).sum() - (alpha / m) * (U_src.dot(W_src) * U_trg).sum()
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    if loss > prev_loss:
+                        W_src = prev_W
+
+                elif args.loss == 1:
+                    m = args.senti_nsample
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
+                    ssrc = xp.random.randint(0, xsenti.shape[0], m)
+                    strg = xp.random.randint(0, xsenti.shape[0], m)
+                    mask = ysenti[ssrc] == ysenti[strg]
+                    ssrc = ssrc[mask]
+                    strg = strg[mask]
+                    U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
+                    U_trg = bdi_obj.src_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
+                    Z = U_src - U_trg
+                    m = Z.shape[0]
+                    logging.debug('number of samples: {0:d}'.format(Z.shape[0]))
+                    prev_loss, loss = float('inf'), float('inf')
+                    while prev_loss - loss > 0.05 or loss == float('inf'):
+                        prev_W = W_src.copy()
+                        prev_loss = loss
+                        grad = 2 * ((X_src.T.dot(X_src) + (alpha / m) * Z.T.dot(Z)).dot(W_src) - X_src.T.dot(X_trg))
+                        W_src -= lr * grad
+                        W_src = proj_spectral(W_src)
+                        loss = xp.linalg.norm(X_src.dot(W_src) - X_trg) + (alpha / m) * xp.linalg.norm(Z.dot(W_src))
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    if loss > prev_loss:
+                        W_src = prev_W
+
+                elif args.loss == 2:
+                    m = args.senti_nsample
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
+                    ssrc = xp.random.randint(0, xsenti.shape[0], m)
+                    strg = xp.random.randint(0, xsenti.shape[0], m)
+                    mask = ysenti[ssrc] == ysenti[strg]
+                    ssrc = ssrc[mask]
+                    strg = strg[mask]
+                    U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
+                    U_trg = bdi_obj.src_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
+                    Z = U_src - U_trg
+                    m = Z.shape[0]
+                    logging.debug('number of samples: {0:d}'.format(Z.shape[0]))
+                    prev_loss, loss = float('inf'), float('inf')
+                    while prev_loss - loss > 0.05 or loss == float('inf'):
+                        prev_W = W_src.copy()
+                        prev_loss = loss
+                        grad = -X_src.T.dot(X_trg) + (2 * alpha / m) * Z.T.dot(Z).dot(W_src)
+                        W_src -= lr * grad
+                        W_src = proj_spectral(W_src)
+                        loss = -(X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.linalg.norm(Z.dot(W_src))
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    if loss > prev_loss:
+                        W_src = prev_W
+
+                logging.debug('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
+                bdi_obj.project(W_src, 'forward', unit_norm=True)
+
+            elif epoch % 2 == 1:
                 lr = args.learning_rate
-                X_src = bdi_obj.src_emb[curr_dict[:, 0]]
-                X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
-                ssrc = xp.random.randint(0, xsenti.shape[0], m)
-                strg = xp.random.randint(0, xsenti.shape[0], m)
-                if args.sample_type == 'full':
-                    I = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32) * 2 - 1
-                elif args.sample_type == 'same':
-                    I = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32)
-                elif args.sample_type == 'pos-neg':
-                    I = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32) - 1
-
-                U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
-                U_trg = bdi_obj.src_proj_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
-                U_src *= I[:, xp.newaxis]
-                logging.debug('number of samples: {0:d}'.format(U_src.shape[0]))
+                X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+                X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
                 prev_loss, loss = float('inf'), float('inf')
                 while prev_loss - loss > 0.05 or loss == float('inf'):
-                    prev_W = W_src.copy()
-                    grad = -X_src.T.dot(X_trg) - (alpha / m) * U_src.T.dot(U_trg)
-                    W_src -= lr * grad
-                    W_src = proj_spectral(W_src)
+                    prev_W = W_trg.copy()
+                    grad = -X_trg.T.dot(X_src) if args.loss in (0, 2) else 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
+                    W_trg -= lr * grad
+                    W_trg = proj_spectral(W_trg)
                     prev_loss = loss
-                    loss = -(X_src.dot(W_src) * X_trg).sum() - (alpha / m) * (U_src.dot(W_src) * U_trg).sum()
+                    loss = -(X_trg.dot(W_trg) * X_src).sum() if args.loss in (0, 2) else xp.linalg.norm(X_trg.dot(W_trg) - X_src)
                     logging.debug('loss: {0:.4f}'.format(float(loss)))
                 if loss > prev_loss:
-                    W_src = prev_W
+                    W_trg = prev_W
+                logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
+                bdi_obj.project(W_trg, 'backward', unit_norm=True)
 
-            elif args.loss == 1:
-                m = args.senti_nsample
-                lr = args.learning_rate
-                X_src = bdi_obj.src_emb[curr_dict[:, 0]]
-                X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
-                ssrc = xp.random.randint(0, xsenti.shape[0], m)
-                strg = xp.random.randint(0, xsenti.shape[0], m)
-                mask = ysenti[ssrc] == ysenti[strg]
-                ssrc = ssrc[mask]
-                strg = strg[mask]
-                U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
-                U_trg = bdi_obj.src_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
-                Z = U_src - U_trg
-                m = Z.shape[0]
-                logging.debug('number of samples: {0:d}'.format(Z.shape[0]))
-                prev_loss, loss = float('inf'), float('inf')
-                while prev_loss - loss > 0.05 or loss == float('inf'):
-                    prev_W = W_src.copy()
-                    prev_loss = loss
-                    grad = 2 * ((X_src.T.dot(X_src) + (alpha / m) * Z.T.dot(Z)).dot(W_src) - X_src.T.dot(X_trg))
-                    W_src -= lr * grad
-                    W_src = proj_spectral(W_src)
-                    loss = xp.linalg.norm(X_src.dot(W_src) - X_trg) + (alpha / m) * xp.linalg.norm(Z.dot(W_src))
-                    logging.debug('loss: {0:.4f}'.format(float(loss)))
-                if loss > prev_loss:
-                    W_src = prev_W
+            if not args.no_proj_error:
+                proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
+                logging.info('proj error: %.4f' % proj_error)
 
-            elif args.loss == 2:
-                m = args.senti_nsample
-                lr = args.learning_rate
-                X_src = bdi_obj.src_emb[curr_dict[:, 0]]
-                X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
-                ssrc = xp.random.randint(0, xsenti.shape[0], m)
-                strg = xp.random.randint(0, xsenti.shape[0], m)
-                mask = ysenti[ssrc] == ysenti[strg]
-                ssrc = ssrc[mask]
-                strg = strg[mask]
-                U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
-                U_trg = bdi_obj.src_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
-                Z = U_src - U_trg
-                m = Z.shape[0]
-                logging.debug('number of samples: {0:d}'.format(Z.shape[0]))
-                prev_loss, loss = float('inf'), float('inf')
-                while prev_loss - loss > 0.05 or loss == float('inf'):
-                    prev_W = W_src.copy()
-                    prev_loss = loss
-                    grad = -X_src.T.dot(X_trg) + (2 * alpha / m) * Z.T.dot(Z).dot(W_src)
-                    W_src -= lr * grad
-                    W_src = proj_spectral(W_src)
-                    loss = -(X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.linalg.norm(Z.dot(W_src))
-                    logging.debug('loss: {0:.4f}'.format(float(loss)))
-                if loss > prev_loss:
-                    W_src = prev_W
+            # dictionary induction
+            curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
-            logging.debug('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
-            bdi_obj.project(W_src, 'forward', unit_norm=True)
+            # update keep_prob
+            if (epoch + 1) % (args.dropout_interval * 2) == 0:
+                keep_prob = min(1., keep_prob + args.dropout_step)
 
-        elif epoch % 2 == 1:
-            lr = args.learning_rate
-            X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
-            X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
-            prev_loss, loss = float('inf'), float('inf')
-            while prev_loss - loss > 0.05 or loss == float('inf'):
-                prev_W = W_trg.copy()
-                grad = -X_trg.T.dot(X_src) if args.loss in (0, 2) else 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
-                W_trg -= lr * grad
-                W_trg = proj_spectral(W_trg)
-                prev_loss = loss
-                loss = -(X_trg.dot(W_trg) * X_src).sum() if args.loss in (0, 2) else xp.linalg.norm(X_trg.dot(W_trg) - X_src)
-                logging.debug('loss: {0:.4f}'.format(float(loss)))
-            if loss > prev_loss:
-                W_trg = prev_W
-            logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
-            bdi_obj.project(W_trg, 'backward', unit_norm=True)
+            # update alpha
+            if args.alpha_inc:
+                alpha = min(args.alpha_step + alpha, args.alpha)
+            elif args.alpha_dec:
+                alpha = max(alpha - args.alpha_step, args.alpha)
+            elif args.alpha_mul:
+                alpha = min(args.alpha_factor * alpha, args.alpha)
 
-        if not args.no_proj_error:
-            proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
-            logging.info('proj error: %.4f' % proj_error)
-
-        # dictionary induction
-        curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
-
-        # update keep_prob
-        if (epoch + 1) % (args.dropout_interval * 2) == 0:
-            keep_prob = min(1., keep_prob + args.dropout_step)
-
-        # update alpha
-        if args.alpha_inc:
-            alpha = min(args.alpha_step + alpha, args.alpha)
-        elif args.alpha_dec:
-            alpha = max(alpha - args.alpha_step, args.alpha)
-        elif args.alpha_mul:
-            alpha = min(args.alpha_factor * alpha, args.alpha)
-
-        # valiadation
-        if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
-            bdi_obj.project(W_trg, 'backward', unit_norm=True, full_trg=True)
-            val_trg_ind = bdi_obj.get_target_indices(gold_dict[:, 0])
-            accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
-            logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
-
-    # save W_trg
-    save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
-               args.target_lang, args.model, args.save_path)
+            # valiadation
+            if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
+                bdi_obj.project(W_trg, 'backward', unit_norm=True, full_trg=True)
+                val_trg_ind = bdi_obj.get_target_indices(gold_dict[:, 0])
+                accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
+                logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
+    finally:
+        # save W_trg
+        save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
+                   args.target_lang, args.model, args.save_path,
+                   alpha=args.alpha, alpha_init=args.alpha_init, dropout_init=args.dropout_init)
 
 
 if __name__ == '__main__':
