@@ -6,7 +6,7 @@ author: fyl
 import pickle
 import os
 
-def save_model(W_src, W_trg, src_lang, trg_lang, model_type, path):
+def save_model(W_src, W_trg, src_lang, trg_lang, model_type, path, **kwargs):
     dic = {
         "W_source": W_src,
         "W_target": W_trg,
@@ -14,6 +14,7 @@ def save_model(W_src, W_trg, src_lang, trg_lang, model_type, path):
         "target_lang": trg_lang,
         "model": model_type,
     }
+    dic.update(kwargs)
     directory = os.path.dirname(path)
     if not os.path.exists(directory):
         os.mkdir(directory)
