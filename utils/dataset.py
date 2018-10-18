@@ -1,5 +1,5 @@
 """
-helpers for loading binary Word2Vec, bilingual dictionary and OpeNER sentiment dataset. 
+helpers for loading binary Word2Vec, bilingual dictionary and OpeNER sentiment dataset.
 
 author: fyl
 """
@@ -28,7 +28,7 @@ class WordVecs(object):
         specify the encoding with which to decode the bytes
     normalize: bool
         mean center the word vectors and normalize to unit length
-    format: 
+    emb_format: str
     """
 
     def __init__(self, file, vocab=None, encoding='utf-8', normalize=False, emb_format='word2vec_bin'):
@@ -335,6 +335,24 @@ class SentimentDataset(object):
         self.train = sents2index(*self.train, binary=binary)
         self.dev = sents2index(*self.dev, binary=binary)
         self.test = sents2index(*self.test, binary=binary)
+        return self
+
+    def pad(self, value, maxlen=64):
+        """
+        value: int
+        maxlen: int
+        """
+        def pad_sents(X, y):
+            X_new = np.full((len(X), maxlen), value, dtype=np.int32)
+            lengths = np.ones(len(X), dtype=np.int32)
+            for i, line in enumerate(X):
+                lengths[i] = min(len(line), maxlen)
+                X_new[i][:min(len(line), maxlen)] = line[:maxlen]
+            return X_new, y, lengths
+
+        self.train = pad_sents(*self.train)
+        self.dev = pad_sents(*self.dev)
+        self.test = pad_sents(*self.test)
         return self
 
     def to_vecs(self, emb, shuffle=False):
