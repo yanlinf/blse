@@ -13,6 +13,8 @@ from utils.model import *
 
 
 COLORS = ['b', 'b', 'r', 'g', 'k', 'y', 'c']
+EMB_PATH = 'pickle/%s.bin'
+SENTI_PATH = 'categories/categories.%s'
 
 
 def load_W_source(model_path):
@@ -35,12 +37,12 @@ def main(args):
         src_lang = dic['source_lang']
         trg_lang = dic['target_lang']
         model = dic['model']
-        with open('pickle/%s.bin' % src_lang, 'rb') as fin:
+        with open(EMB_PATH % src_lang, 'rb') as fin:
             src_wv = pickle.load(fin)
-        with open('pickle/%s.bin' % trg_lang, 'rb') as fin:
+        with open(EMB_PATH % trg_lang, 'rb') as fin:
             trg_wv = pickle.load(fin)
-        src_senti_words = SentiWordSet('categories/categories.%s' % src_lang).to_index(src_wv)
-        trg_senti_words = SentiWordSet('categories/categories.%s' % trg_lang).to_index(trg_wv)
+        src_senti_words = SentiWordSet(SENTI_PATH % src_lang).to_index(src_wv)
+        trg_senti_words = SentiWordSet(SENTI_PATH % trg_lang).to_index(trg_wv)
         src_offsets = [0] + list(accumulate([len(t) for t in src_senti_words.wordsets]))
         trg_offsets = [0] + list(accumulate([len(t) for t in trg_senti_words.wordsets]))
         src_word_idx = sum(src_senti_words.wordsets, [])
@@ -77,7 +79,7 @@ def main(args):
 
         fig.set_size_inches(20, 8)
 
-        outfile = 'result/' + infile.split('/')[-1].replace('.bin', '.png')
+        outfile = 'result/' + infile.split('/')[-1].replace('.bin', '') + '.png'
         fig.savefig(outfile)
 
 
