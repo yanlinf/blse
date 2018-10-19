@@ -43,7 +43,7 @@ def main(args):
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
             length_normalize(trg_proj_emb, inplace=True)
         elif model == 'ubi':
-            src_proj_emb = src_wv.embedding
+            src_wv.embedding.dot(W_src, out=src_proj_emb)
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
 
         for is_binary in (True, False):
