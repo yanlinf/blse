@@ -114,7 +114,6 @@ def main(args):
                     U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
                     U_trg = bdi_obj.src_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
                     Z = U_src - U_trg
-                    m = Z.shape[0]
                     logging.debug('number of samples: {0:d}'.format(Z.shape[0]))
                     prev_loss, loss = float('inf'), float('inf')
                     while prev_loss - loss > 0.05 or loss == float('inf'):
@@ -141,7 +140,6 @@ def main(args):
                     U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
                     U_trg = bdi_obj.src_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
                     Z = U_src - U_trg
-                    m = Z.shape[0]
                     logging.debug('number of samples: {0:d}'.format(Z.shape[0]))
                     prev_loss, loss = float('inf'), float('inf')
                     while prev_loss - loss > 0.05 or loss == float('inf'):
