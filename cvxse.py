@@ -92,11 +92,11 @@ def main(args):
                     prev_loss, loss = float('inf'), float('inf')
                     while prev_loss - loss > 0.05 or loss == float('inf'):
                         prev_W = W_src.copy()
-                        grad = -X_src.T.dot(X_trg) - (alpha / m) * U_src.T.dot(U_trg)
+                        grad = -2 * X_src.T.dot(X_trg) - (alpha / m) * U_src.T.dot(U_trg)
                         W_src -= lr * grad
                         W_src = proj_spectral(W_src)
                         prev_loss = loss
-                        loss = -(X_src.dot(W_src) * X_trg).sum() - (alpha / m) * (U_src.dot(W_src) * U_trg).sum()
+                        loss = -2 * (X_src.dot(W_src) * X_trg).sum() - (alpha / m) * (U_src.dot(W_src) * U_trg).sum()
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
                     if loss > prev_loss:
                         W_src = prev_W
@@ -145,10 +145,10 @@ def main(args):
                     while prev_loss - loss > 0.05 or loss == float('inf'):
                         prev_W = W_src.copy()
                         prev_loss = loss
-                        grad = -X_src.T.dot(X_trg) + (2 * alpha / m) * Z.T.dot(Z).dot(W_src)
+                        grad = -2 * X_src.T.dot(X_trg) + (2 * alpha / m) * Z.T.dot(Z).dot(W_src)
                         W_src -= lr * grad
                         W_src = proj_spectral(W_src)
-                        loss = -(X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.linalg.norm(Z.dot(W_src))
+                        loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.linalg.norm(Z.dot(W_src))
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
                     if loss > prev_loss:
                         W_src = prev_W
