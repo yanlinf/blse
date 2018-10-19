@@ -1,4 +1,9 @@
 # Poject specific
+word2vec/trunk/compute-accuracy
+word2vec/trunk/distance
+word2vec/trunk/word-analogy
+word2vec/trunk/word2phrase
+word2vec/trunk/word2vec
 exp*.sh
 nohup.out
 pickle/
