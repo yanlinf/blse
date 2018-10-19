@@ -49,12 +49,12 @@ def main(args):
         for is_binary in (True, False):
             src_ds = SentimentDataset('datasets/%s/opener_sents/' % src_lang).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
             trg_ds = SentimentDataset('datasets/%s/opener_sents/' % trg_lang).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
-            train_x = np.concatenate((src_ds.train[0], src_ds.dev[0], src_ds.test[0]), axis=0)
-            train_y = np.concatenate((src_ds.train[1], src_ds.dev[1], src_ds.test[1]), axis=0)
-            # train_x = src_ds.train[0]
-            # train_y = src_ds.train[1]
-            test_x = trg_ds.train[0]
-            test_y = trg_ds.train[1]
+            # train_x = np.concatenate((src_ds.train[0], src_ds.dev[0], src_ds.test[0]), axis=0)
+            # train_y = np.concatenate((src_ds.train[1], src_ds.dev[1], src_ds.test[1]), axis=0)
+            train_x = src_ds.train[0]
+            train_y = src_ds.train[1]
+            test_x = trg_ds.test[0]
+            test_y = trg_ds.test[1]
             if args.C is not None:
                 clf = svm.LinearSVC(C=args.C)
             else:
