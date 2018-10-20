@@ -46,13 +46,14 @@ def main(args):
     alpha = max(args.alpha, args.alpha_init) if args.alpha_dec else min(args.alpha, args.alpha_init)
     init_dict = get_unsupervised_init_dict(src_wv.embedding, trg_wv.embedding, args.vocab_cutoff, args.csls, args.normalize, args.direction)
     init_dict = xp.array(init_dict)
+    I = xp.identity(args.vector_dim, dtype=xp.float32)
 
     logging.info('gold dict shape' + str(gold_dict.shape))
 
     if args.load is not None:
         dic = load_model(args.load)
-        W_src = xp.array(dic['W_source'])
-        W_trg = xp.array(dic['W_target'])
+        W_src = xp.array(dic['W_source'], dtype=xp.float32)
+        W_trg = xp.array(dic['W_target'], dtype=xp.float32)
     else:
         W_src = W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
 
@@ -60,10 +61,13 @@ def main(args):
     bdi_obj = BDI(src_wv.embedding, trg_wv.embedding, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
                   direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer='dot',
                   src_val_ind=src_val_ind, trg_val_ind=gold_dict[:, 1])
-    bdi_obj.project(W_src, 'forward', unit_norm=True)
-    bdi_obj.project(W_trg, 'backward', unit_norm=True)
+    bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
+    bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection)
     curr_dict = init_dict if args.load is None else bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
+    if not args.no_proj_error:
+        proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
+        logging.info('proj error: %.4f' % proj_error)
     # self learning
     try:
         for epoch in range(args.epochs):
@@ -79,22 +83,22 @@ def main(args):
                     ssrc = xp.random.randint(0, xsenti.shape[0], m)
                     strg = xp.random.randint(0, xsenti.shape[0], m)
                     if args.sample_type == 'full':
-                        I = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32) * 2 - 1
+                        mask = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32) * 2 - 1
                     elif args.sample_type == 'same':
-                        I = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32)
+                        mask = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32)
                     elif args.sample_type == 'pos-neg':
-                        I = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32) - 1
+                        mask = (ysenti[ssrc] == ysenti[strg]).astype(xp.float32) - 1
 
                     U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
                     U_trg = bdi_obj.src_proj_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
-                    U_src *= I[:, xp.newaxis]
+                    U_src *= mask[:, xp.newaxis]
                     logging.debug('number of samples: {0:d}'.format(U_src.shape[0]))
                     prev_loss, loss = float('inf'), float('inf')
                     while prev_loss - loss > 0.05 or loss == float('inf'):
                         prev_W = W_src.copy()
                         grad = -2 * X_src.T.dot(X_trg) - (alpha / m) * U_src.T.dot(U_trg)
                         W_src -= lr * grad
-                        W_src = proj_spectral(W_src)
+                        W_src = proj_spectral(W_src, threshold=args.threshold)
                         prev_loss = loss
                         loss = -2 * (X_src.dot(W_src) * X_trg).sum() - (alpha / m) * (U_src.dot(W_src) * U_trg).sum()
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
@@ -121,8 +125,8 @@ def main(args):
                         prev_loss = loss
                         grad = 2 * ((X_src.T.dot(X_src) + (alpha / m) * Z.T.dot(Z)).dot(W_src) - X_src.T.dot(X_trg))
                         W_src -= lr * grad
-                        W_src = proj_spectral(W_src)
-                        loss = xp.linalg.norm(X_src.dot(W_src) - X_trg) + (alpha / m) * xp.linalg.norm(Z.dot(W_src))
+                        W_src = proj_spectral(W_src, threshold=args.threshold)
+                        loss = xp.linalg.norm(X_src.dot(W_src) - X_trg)**2 + (alpha / m) * xp.linalg.norm(Z.dot(W_src))**2
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
                     if loss > prev_loss:
                         W_src = prev_W
@@ -147,32 +151,56 @@ def main(args):
                         prev_loss = loss
                         grad = -2 * X_src.T.dot(X_trg) + (2 * alpha / m) * Z.T.dot(Z).dot(W_src)
                         W_src -= lr * grad
-                        W_src = proj_spectral(W_src)
-                        loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.linalg.norm(Z.dot(W_src))
+                        W_src = proj_spectral(W_src, threshold=args.threshold)
+                        loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.linalg.norm(Z.dot(W_src))**2
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
                     if loss > prev_loss:
                         W_src = prev_W
 
+                elif args.loss == 3:
+                    m = args.senti_nsample
+                    X_src = bdi_obj.src_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
+                    ssrc = xp.random.randint(0, xsenti.shape[0], m)
+                    strg = xp.random.randint(0, xsenti.shape[0], m)
+                    mask = ysenti[ssrc] == ysenti[strg]
+                    ssrc = ssrc[mask]
+                    strg = strg[mask]
+                    U_src = bdi_obj.src_emb[xsenti[ssrc]].sum(axis=1) / lsenti[ssrc][:, xp.newaxis]
+                    U_trg = bdi_obj.src_emb[xsenti[strg]].sum(axis=1) / lsenti[strg][:, xp.newaxis]
+                    Z = U_src - U_trg
+                    logging.debug('number of samples: {0:d}'.format(Z.shape[0]))
+                    W_src = xp.linalg.pinv((2 * alpha / m) * Z.T.dot(Z) + (2 * args.beta) * I).dot(X_src.T.dot(X_trg))
+                    W_src = W_src.astype(xp.float32)
+
                 logging.debug('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
-                bdi_obj.project(W_src, 'forward', unit_norm=True)
+                bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
 
             elif epoch % 2 == 1:
-                lr = args.learning_rate
-                X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
-                X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
-                prev_loss, loss = float('inf'), float('inf')
-                while prev_loss - loss > 0.05 or loss == float('inf'):
-                    prev_W = W_trg.copy()
-                    grad = -X_trg.T.dot(X_src) if args.loss in (0, 2) else 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
-                    W_trg -= lr * grad
-                    W_trg = proj_spectral(W_trg)
-                    prev_loss = loss
-                    loss = -(X_trg.dot(W_trg) * X_src).sum() if args.loss in (0, 2) else xp.linalg.norm(X_trg.dot(W_trg) - X_src)
-                    logging.debug('loss: {0:.4f}'.format(float(loss)))
-                if loss > prev_loss:
-                    W_trg = prev_W
+                if args.loss == 3:
+                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
+                    W_trg = (1 / 2 / args.beta) * X_trg.T.dot(X_src)
+                    # W_trg = I
+
+                else:
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
+                    prev_loss, loss = float('inf'), float('inf')
+                    while prev_loss - loss > 0.05 or loss == float('inf'):
+                        prev_W = W_trg.copy()
+                        grad = -X_trg.T.dot(X_src) if args.loss in (0, 2) else 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
+                        W_trg -= lr * grad
+                        W_trg = proj_spectral(W_trg, threshold=args.threshold)
+                        prev_loss = loss
+                        loss = -(X_trg.dot(W_trg) * X_src).sum() if args.loss in (0, 2) else xp.linalg.norm(X_trg.dot(W_trg) - X_src)
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    if loss > prev_loss:
+                        W_trg = prev_W
+
                 logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
-                bdi_obj.project(W_trg, 'backward', unit_norm=True)
+                bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection)
 
             if not args.no_proj_error:
                 proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
@@ -208,7 +236,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--loss', type=int, choices=[0, 1, 2], default=0, help='type of loss function')
+    parser.add_argument('--loss', type=int, choices=[0, 1, 2, 3], default=0, help='type of loss function')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
@@ -243,6 +271,9 @@ if __name__ == '__main__':
     mapping_group.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['center', 'unit'], help='normalization actions')
     mapping_group.add_argument('--spectral', action='store_true', help='restrict projection matrix to spectral domain')
     mapping_group.add_argument('-lr', '--learning_rate', type=float, default=0.001, help='use gradient descent to solve W')
+    mapping_group.add_argument('-b', '--beta', type=float, default=0, help='regularization parameter')
+    mapping_group.add_argument('--normalize_projection', action='store_true', help='normalize after projection')
+    mapping_group.add_argument('--threshold', type=float, default=1., help='spectral norm constraint')
 
     senti_sample_group = parser.add_argument_group()
     senti_sample_group.add_argument('-n', '--senti_nsample', type=int, default=200, help='sentiment examples')
@@ -276,11 +307,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
-                        vocab_cutoff=10000, alpha=5000, senti_nsample=50, spectral=True, threshold=1.,
-                        learning_rate=0.001, alpha_init=5000, alpha_step=0.01, alpha_inc=True,
+                        vocab_cutoff=10000, alpha=5000, senti_nsample=50, spectral=True,
+                        learning_rate=0.01, alpha_init=5000, alpha_step=0.01, alpha_inc=True,
                         no_proj_error=False, save_path='checkpoints/cvxse.bin',
                         dropout_init=1, dropout_interval=1, dropout_step=0.002, epochs=1000,
-                        no_target_senti=True, model='ubise', normalize_projection=True,)
+                        no_target_senti=True, model='ubise', normalize_projection=True,
+                        threshold=1.0)
 
     if args.en_es:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
