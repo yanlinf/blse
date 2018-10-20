@@ -146,7 +146,7 @@ def main(args):
                   direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer=args.scorer,
                   src_val_ind=gold_dict[:, 0], trg_val_ind=gold_dict[:, 1])
     bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
-    bdi_obj.project(W_trg, 'backward', unit_norm=args.spectral)
+    bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection)
     curr_dict = init_dict if args.load is None else bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
     # self learning
@@ -310,7 +310,7 @@ if __name__ == '__main__':
                             normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised100.csv')
     elif args.senti:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'],
-                            vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=False, threshold=1.,
+                            vocab_cutoff=10000, alpha=7, senti_nsample=200, log='./log/senti.csv', spectral=True, threshold=1.,
                             learning_rate=0.001, alpha_init=0.1, alpha_factor=1.01, no_proj_error=False,
                             dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000, model='ubise',
                             normalize_projection=True)
