@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn import svm
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, PredefinedSplit
 from sklearn.metrics import f1_score
 from sklearn.exceptions import UndefinedMetricWarning, ConvergenceWarning
 from sklearn.utils.testing import ignore_warnings
@@ -49,23 +49,31 @@ def main(args):
         for is_binary in (True, False):
             src_ds = SentimentDataset('datasets/%s/opener_sents/' % src_lang).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
             trg_ds = SentimentDataset('datasets/%s/opener_sents/' % trg_lang).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
-            # train_x = np.concatenate((src_ds.train[0], src_ds.dev[0], src_ds.test[0]), axis=0)
-            # train_y = np.concatenate((src_ds.train[1], src_ds.dev[1], src_ds.test[1]), axis=0)
+            train_dev_x = np.concatenate((src_ds.train[0], trg_ds.dev[0]), axis=0)
+            train_dev_y = np.concatenate((src_ds.train[1], trg_ds.dev[1]), axis=0)
             train_x = src_ds.train[0]
             train_y = src_ds.train[1]
             test_x = trg_ds.test[0]
             test_y = trg_ds.test[1]
+
             if args.C is not None:
                 clf = svm.LinearSVC(C=args.C)
+                clf.fit(train_x, train_y)
+                best_C = args.C
+                test_score = f1_score(test_y, clf.predict(test_x), average='macro')
             else:
+                cv_fold = np.zeros(train_dev_x.shape[0], dtype=np.int32)
+                cv_fold[:train_x.shape[0]] = -1
+                cv_split = PredefinedSplit(cv_fold)
                 param_grid = {
-                    'C': [0.03, 0.1, 0.3, 1, 3, 10, 30, 80],
+                    'C': [0.03, 0.1, 0.3, 1, 3, 10, 30, 100, 300],
                 }
                 svc = svm.LinearSVC()
-                clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count())
-            clf.fit(train_x, train_y)
-            test_score = f1_score(test_y, clf.predict(test_x), average='macro')
-            best_C = args.C if args.C is not None else clf.best_params_['C']
+                clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count(), cv=cv_split)
+                clf.fit(train_dev_x, train_dev_y)
+                best_C = clf.best_params_['C']
+                pred = svm.LinearSVC(C=best_C).fit(train_x, train_y).predict(test_x)
+                test_score = f1_score(test_y, pred, average='macro')
             print('------------------------------------------------------')
             print('Is binary: {0}'.format(is_binary))
             print('Result for {0}:'.format(infile))
