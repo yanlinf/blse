@@ -48,13 +48,19 @@ def main(args):
         os.mkdir('log')
     log_file = open(args.log, 'w', encoding='utf-8')
 
-    src_wv = WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
-    trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
+    if args.pickle:
+        with open(args.source_embedding, 'rb') as fin:
+            src_wv = pickle.load(fin)
+        with open(args.target_embedding, 'rb') as fin:
+            trg_wv = pickle.load(fin)
+    else:
+        src_wv = WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+        trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
     src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
     trg_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
     gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     keep_prob = args.dropout_init
-    
+
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
     elif args.init_unsupervised:
@@ -95,11 +101,8 @@ def main(args):
 
     log_file.close()
 
-    # save W_trg
-    if not os.path.exists('checkpoints'):
-        os.mkdir('checkpoints')
-    with open(args.save_path, 'wb') as fout:
-        pickle.dump(asnumpy(W_trg), fout)
+    save_model(np.identity(W_trg.shape[0], dtype=np.float32), asnumpy(W_trg),
+               args.source_lang, args.target_lang, 'ubi', args.save_path)
 
 
 if __name__ == '__main__':
@@ -122,6 +125,7 @@ if __name__ == '__main__':
     parser.add_argument('--cuda', action='store_true', help='use cuda to accelerate')
     parser.add_argument('--log', default='./log/init100.csv', type=str, help='file to print log')
     parser.add_argument('--plot', action='store_true', help='plot results')
+    parser.add_argument('--pickle', action='store_true', help='load from pickled objects')
 
     init_group = parser.add_mutually_exclusive_group()
     init_group.add_argument('-d', '--init_dictionary', default='./init_dict/init100.txt', help='bilingual dictionary for learning bilingual mapping (default: ./init_dict/init100.txt)')
@@ -153,7 +157,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     if args.unsupervised:
-        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/unsupervised.csv', dropout_interval=40)
+        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=[
+                            'center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/unsupervised.csv',
+                            dropout_init=0.2, dropout_interval=40)
     elif args.unconstrained:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=False, log='./log/unconstrained.csv')
     elif args.supervised5000:
@@ -164,15 +170,24 @@ if __name__ == '__main__':
                             normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/supervised100.csv')
 
     if args.en_es:
-        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.es.vec', format='fasttext_text',
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/es.bin' if args.pickle else 'emb/wiki.es.vec'
+        parser.set_defaults(source_lang='en', target_lang='es',
+                            source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.es.vec', format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-es.txt', save_path='checkpoints/en-es-ubi-0.bin')
     elif args.en_ca:
-        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.ca.vec', format='fasttext_text',
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
+        parser.set_defaults(source_lang='en', target_lang='ca',
+                            source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.ca.vec', format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-ca.txt', save_path='checkpoints/en-ca-ubi-0.bin')
     elif args.en_eu:
-        parser.set_defaults(source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.eu.vec', format='fasttext_text',
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
+        parser.set_defaults(source_lang='en', target_lang='eu',
+                            source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.eu.vec', format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-eu.txt', save_path='checkpoints/en-eu-ubi-0.bin')
     args = parser.parse_args()
