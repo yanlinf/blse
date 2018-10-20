@@ -4,8 +4,8 @@ from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
 
-TARGET = 'emb/%s.bin'
-FORMAT = 'word2vec_bin'
+TARGET = 'emb/wiki.%s.vec'
+FORMAT = 'fasttext_text'
 
 
 def main():
