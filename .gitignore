@@ -1,4 +1,5 @@
 # Poject specific
+vocab/
 word2vec/trunk/compute-accuracy
 word2vec/trunk/distance
 word2vec/trunk/word-analogy
