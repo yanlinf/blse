@@ -12,6 +12,7 @@ import logging
 from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
+from utils.model import *
 
 
 class BLSE(object):
@@ -57,6 +58,7 @@ class BLSE(object):
             with tf.variable_scope('projection', reuse=tf.AUTO_REUSE):
                 W_target = tf.get_variable(
                     'W_target', (self.vec_dim, self.vec_dim), dtype=tf.float32, initializer=tf.constant_initializer(np.identity(self.vec_dim)))
+                self.W_target = W_target
 
             return tf.matmul(vecs, W_target)
 
@@ -74,6 +76,8 @@ class BLSE(object):
                 P = tf.get_variable('P', (self.vec_dim, self.nclass), dtype=tf.float32,
                                     initializer=tf.random_uniform_initializer(-1., 1.))
                 b = tf.get_variable('b', (self.nclass,), dtype=tf.float32, initializer=tf.zeros_initializer())
+                self.P = P
+                self.b = b
             return tf.matmul(input, P) + b
 
         self.train_x = tf.placeholder(tf.float32, shape=(None, self.vec_dim))
@@ -122,6 +126,7 @@ class BLSE(object):
         nsample = len(train_x)
         nbatch = nsample // self.batch_size
         best_test_f1 = 0.
+
         for epoch in range(self.epochs):
             closs, ploss, loss = 0., 0., 0.
             pred = np.zeros(nsample)
@@ -152,18 +157,11 @@ class BLSE(object):
                 logging.info('Dev f1_macro: %.4f' % test_f1)
                 if test_f1 > best_test_f1:
                     best_test_f1 = test_f1
-                    self.save(self.savepath)
-        return best_test_f1
+                    best_W_src, best_W_trg, best_P, best_b = self.sess.run([self.W_source, self.W_target, self.P, self.b])
+        return best_W_src, best_W_trg, best_P, best_b
 
     def predict(self, test_x):
         return self.sess.run(self.pred_test, feed_dict={self.test_x: test_x})
-
-    # def predict_source(self, test_x):
-    #     feed_dict = {
-    #         self.source_original_emb: self.source_emb_obj,
-    #         self.corpus: test_x,
-    #     }
-    #     return self.sess.run(self.pred, feed_dict=feed_dict)
 
     def score(self, test_x, test_y):
         return f1_score(test_y, self.predict(test_x), average='macro')
@@ -188,8 +186,14 @@ def load_data(binary=False):
             y = (y >= 2).astype(np.int32)
         return X, y
 
-    source_wordvecs = WordVecs(args.source_embedding, emb_format=args.format)
-    target_wordvecs = WordVecs(args.target_embedding, emb_format=args.format)
+    if args.pickle:
+        with open(args.source_embedding, 'rb') as fin:
+            source_wordvecs = pickle.load(fin)
+        with open(args.target_embedding, 'rb') as fin:
+            target_wordvecs = pickle.load(fin)
+    else:
+        source_wordvecs = WordVecs(args.source_embedding, emb_format=args.format)
+        target_wordvecs = WordVecs(args.target_embedding, emb_format=args.format)
 
     dict_obj = BilingualDict(args.dictionary).filter(
         lambda x: x[0] != '-').get_indexed_dictionary(source_wordvecs, target_wordvecs)
@@ -200,8 +204,8 @@ def load_data(binary=False):
     target_dataset = SentimentDataset(args.target_dataset).to_index(target_wordvecs)
 
     train_x, train_y = lookup_and_shuffle(*source_dataset.train, source_wordvecs.embedding, binary)
-    test_x, test_y = lookup_and_shuffle(*target_dataset.train, target_wordvecs.embedding, binary)
-    dev_x, dev_y = lookup_and_shuffle(*target_dataset.test, target_wordvecs.embedding, binary)
+    test_x, test_y = lookup_and_shuffle(*target_dataset.test, target_wordvecs.embedding, binary)
+    dev_x, dev_y = lookup_and_shuffle(*target_dataset.dev, target_wordvecs.embedding, binary)
 
     return source_wordvecs, target_wordvecs, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y
 
@@ -216,28 +220,21 @@ def load_data(binary=False):
 
 
 def main(args):
-    logging.info('fitting BLSE model with parameters: %s' % str(args))
+    logging.info(str(args))
     source_wordvecs, target_wordvecs, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y = load_data(
         binary=args.binary)  # numpy array
     with tf.Session() as sess:
         model = BLSE(sess, args.save_path, args.vector_dim, args.alpha, args.learning_rate,
                      args.batch_size, args.epochs, binary=args.binary)
 
-        if args.model != '':
+        if args.model is not None:
             model.load(args.model)
         else:
-            best_f1 = model.fit(train_x, train_y, source_words, target_words, test_x, test_y)
-            logging.info('Best dev f1_macro: %.4f' % best_f1)
-        # model.save(args.save_path)
+            W_src, W_trg, P, b = model.fit(train_x, train_y, source_words, target_words, dev_x, dev_y)
 
-        logging.info('Test f1_macro: %.4f' % model.score(dev_x, dev_y))
-
-        # pprint([' '.join([str(w) for w in line if w != '<PAD>'])
-        #         for line in source_wordvecs.index2word(train_x[:30])])
-        # print()
-        # print(model.predict_source(train_x[:30]))
-        # print()
-        # print(train_y[:30])
+        logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
+        save_model(W_src, W_trg, args.source_lang, args.target_lang,
+                   'blse', args.save_path, P=P, b=b)
 
 
 if __name__ == '__main__':
@@ -298,11 +295,40 @@ if __name__ == '__main__':
                         const=logging.DEBUG)
     parser.add_argument('--save_path',
                         help='the dictionary to store the trained model',
-                        default='./checkpoints/blse.ckpt')
+                        default='./checkpoints/blse.bin')
     parser.add_argument('--model',
-                        help='restore from trained model',
-                        type=str,
-                        default='')
+                        help='restore from trained model')
+    parser.add_argument('--pickle',
+                        action='store_true',
+                        help='load from pickled objects')
+
+    lang_group = parser.add_mutually_exclusive_group()
+    lang_group.add_argument('--en_es', action='store_true', help='train english-spanish embedding')
+    lang_group.add_argument('--en_ca', action='store_true', help='train english-catalan embedding')
+    lang_group.add_argument('--en_eu', action='store_true', help='train english-basque embedding')
+
+    args = parser.parse_args()
+    if args.en_es:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/es.bin' if args.pickle else 'emb/wiki.es.vec'
+        parser.set_defaults(source_lang='en', target_lang='es',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
+                            dictionary='lexicons/bingliu/en-es.txt')
+    elif args.en_ca:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
+        parser.set_defaults(source_lang='en', target_lang='ca',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
+                            dictionary='lexicons/bingliu/en-ca.txt')
+    elif args.en_eu:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
+        parser.set_defaults(source_lang='en', target_lang='eu',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
+                            dictionary='lexicons/bingliu/en-eu.txt')
     args = parser.parse_args()
 
     logging.basicConfig(level=args.loglevel,
