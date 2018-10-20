@@ -138,8 +138,8 @@ class BDI(object):
         self.src_val_ind = xp.array(src_val_ind)
         self.trg_val_ind = xp.array(trg_val_ind)
 
-        self.src_emb = VIArray(xp.array(src_emb[src_val_ind]), xp.array(src_val_ind))
-        self.src_proj_emb = VIArray(xp.array(src_emb[src_val_ind]), xp.array(src_val_ind))
+        self.src_emb = VIArray(xp.array(src_emb[src_val_ind], dtype=xp.float32), xp.array(src_val_ind, dtype=xp.int32))
+        self.src_proj_emb = VIArray(xp.array(src_emb[src_val_ind], dtype=xp.float32), xp.array(src_val_ind, dtype=xp.int32))
         self.trg_proj_emb = self.trg_emb.copy()
 
         if direction in ('forward', 'union') or csls > 0:
@@ -181,6 +181,7 @@ class BDI(object):
         xp = self.xp
         if direction == 'forward':
             xp.dot(self.src_emb.X, W, out=self.src_proj_emb.X)
+
             self.W_src = W.copy()
             if unit_norm:
                 length_normalize(self.src_proj_emb.X, inplace=True)
