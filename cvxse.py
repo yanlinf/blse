@@ -44,6 +44,7 @@ def main(args):
     gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     keep_prob = args.dropout_init
     alpha = max(args.alpha, args.alpha_init) if args.alpha_dec else min(args.alpha, args.alpha_init)
+    threshold = min(args.threshold, args.threshold_init)
     init_dict = get_unsupervised_init_dict(src_wv.embedding, trg_wv.embedding, args.vocab_cutoff, args.csls, args.normalize, args.direction)
     init_dict = xp.array(init_dict)
     I = xp.identity(args.vector_dim, dtype=xp.float32)
@@ -72,7 +73,8 @@ def main(args):
     try:
         for epoch in range(args.epochs):
             logging.debug('running epoch %d...' % epoch)
-            logging.debug('alhpa: %.4f' % alpha)
+            logging.debug('alpha: %.4f' % alpha)
+            logging.debug('threshold: %.4f' % threshold)
 
             if epoch % 2 == 0:
                 if args.loss == 0:
@@ -98,7 +100,7 @@ def main(args):
                         prev_W = W_src.copy()
                         grad = -2 * X_src.T.dot(X_trg) - (alpha / m) * U_src.T.dot(U_trg)
                         W_src -= lr * grad
-                        W_src = proj_spectral(W_src, threshold=args.threshold)
+                        W_src = proj_spectral(W_src, threshold=threshold)
                         prev_loss = loss
                         loss = -2 * (X_src.dot(W_src) * X_trg).sum() - (alpha / m) * (U_src.dot(W_src) * U_trg).sum()
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
@@ -120,13 +122,21 @@ def main(args):
                     Z = U_src - U_trg
                     logging.debug('number of samples: {0:d}'.format(Z.shape[0]))
                     prev_loss, loss = float('inf'), float('inf')
-                    while prev_loss - loss > 0.05 or loss == float('inf'):
+                    W_src = proj_spectral(xp.linalg.pinv(2 * X_src.T.dot(X_src) + (2 * alpha / m) * Z.T.dot(Z)).dot(X_src.T.dot(X_trg)))
+                    W_src = W_src.astype(xp.float32)
+                    while lr > 0.0005:
                         prev_W = W_src.copy()
                         prev_loss = loss
                         grad = 2 * ((X_src.T.dot(X_src) + (alpha / m) * Z.T.dot(Z)).dot(W_src) - X_src.T.dot(X_trg))
                         W_src -= lr * grad
-                        W_src = proj_spectral(W_src, threshold=args.threshold)
+                        W_src = proj_spectral(W_src, threshold=threshold)
                         loss = xp.linalg.norm(X_src.dot(W_src) - X_trg)**2 + (alpha / m) * xp.linalg.norm(Z.dot(W_src))**2
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_src = prev_W
+                            loss = prev_loss
+                        elif prev_loss - loss < 0.5:
+                            break
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
                     if loss > prev_loss:
                         W_src = prev_W
@@ -146,13 +156,21 @@ def main(args):
                     Z = U_src - U_trg
                     logging.debug('number of samples: {0:d}'.format(Z.shape[0]))
                     prev_loss, loss = float('inf'), float('inf')
-                    while prev_loss - loss > 0.05 or loss == float('inf'):
+                    W_src = proj_spectral(xp.linalg.pinv((alpha / m) * Z.T.dot(Z)).dot(X_src.T.dot(X_trg)))
+                    W_src = W_src.astype(xp.float32)
+                    while lr > 0.000005:
                         prev_W = W_src.copy()
                         prev_loss = loss
                         grad = -2 * X_src.T.dot(X_trg) + (2 * alpha / m) * Z.T.dot(Z).dot(W_src)
                         W_src -= lr * grad
-                        W_src = proj_spectral(W_src, threshold=args.threshold)
+                        W_src = proj_spectral(W_src, threshold=threshold)
                         loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.linalg.norm(Z.dot(W_src))**2
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_src = prev_W
+                            loss = prev_loss
+                        elif prev_loss - loss < 0.5:
+                            break
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
                     if loss > prev_loss:
                         W_src = prev_W
@@ -183,18 +201,68 @@ def main(args):
                     W_trg = (1 / 2 / args.beta) * X_trg.T.dot(X_src)
                     # W_trg = I
 
+                # elif args.loss == 1:
+                #     lr = args.learning_rate
+                #     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+                #     X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
+                #     prev_loss, loss = float('inf'), float('inf')
+                #     while lr > 0.0006:
+                #         prev_W = W_trg.copy()
+                #         grad = -2 * X_trg.T.dot(X_src)
+                #         W_trg -= lr * grad
+                #         W_trg = proj_spectral(W_trg, threshold=threshold)
+                #         prev_loss = loss
+                #         loss = -2 * (X_trg.dot(W_trg) * X_src).sum()
+                #         if loss > prev_loss:
+                #             lr /= 2
+                #             W_trg = prev_W
+                #             loss = prev_loss
+                #         elif prev_loss - loss < 0.5:
+                #             break
+                #         logging.debug('loss: {0:.4f}'.format(float(loss)))
+                #     if loss > prev_loss:
+                #         W_trg = prev_W
+
+                elif args.loss == 1:
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
+                    prev_loss, loss = float('inf'), float('inf')
+                    while lr > 0.0006:
+                        prev_W = W_trg.copy()
+                        grad = 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
+                        W_trg -= lr * grad
+                        W_trg = proj_spectral(W_trg, threshold=threshold)
+                        prev_loss = loss
+                        loss = xp.linalg.norm(X_trg.dot(W_trg) - X_src)**2
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_trg = prev_W
+                            loss = prev_loss
+                        elif prev_loss - loss < 0.5:
+                            break
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    if loss > prev_loss:
+                        W_trg = prev_W
+
                 else:
                     lr = args.learning_rate
                     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
                     X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
                     prev_loss, loss = float('inf'), float('inf')
-                    while prev_loss - loss > 0.05 or loss == float('inf'):
+                    while lr > 0.006:
                         prev_W = W_trg.copy()
-                        grad = -X_trg.T.dot(X_src) if args.loss in (0, 2) else 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
+                        grad = -2 * X_trg.T.dot(X_src)
                         W_trg -= lr * grad
-                        W_trg = proj_spectral(W_trg, threshold=args.threshold)
+                        W_trg = proj_spectral(W_trg, threshold=threshold)
                         prev_loss = loss
-                        loss = -(X_trg.dot(W_trg) * X_src).sum() if args.loss in (0, 2) else xp.linalg.norm(X_trg.dot(W_trg) - X_src)
+                        loss = -2 * (X_trg.dot(W_trg) * X_src).sum()
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_trg = prev_W
+                            loss = prev_loss
+                        elif prev_loss - loss < 0.5:
+                            break
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
                     if loss > prev_loss:
                         W_trg = prev_W
@@ -207,7 +275,8 @@ def main(args):
                 logging.info('proj error: %.4f' % proj_error)
 
             # dictionary induction
-            curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
+            if epoch % 2 == 1:
+                curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
             # update keep_prob
             if (epoch + 1) % (args.dropout_interval * 2) == 0:
@@ -221,6 +290,9 @@ def main(args):
             elif args.alpha_mul:
                 alpha = min(args.alpha_factor * alpha, args.alpha)
 
+            #update threshold
+            threshold = min(args.threshold_step + threshold, args.threshold)
+
             # valiadation
             if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
                 bdi_obj.project(W_trg, 'backward', unit_norm=True, full_trg=True)
@@ -229,6 +301,8 @@ def main(args):
                 logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
     finally:
         # save W_trg
+        W_src = proj_spectral(W_src)
+        W_trg = proj_spectral(W_trg)
         save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
                    args.target_lang, args.model, args.save_path,
                    alpha=args.alpha, alpha_init=args.alpha_init, dropout_init=args.dropout_init)
@@ -244,7 +318,7 @@ if __name__ == '__main__':
     training_group.add_argument('--model', choices=['ubi', 'ubise'], help='model type')
     training_group.add_argument('-e', '--epochs', default=500, type=int, help='training epochs (default: 500)')
     training_group.add_argument('-bs', '--batch_size', default=3000, type=int, help='training batch size (default: 3000)')
-    training_group.add_argument('-vbs', '--val_batch_size', default=500, type=int, help='training batch size (default: 300)')
+    training_group.add_argument('-vbs', '--val_batch_size', default=300, type=int, help='training batch size (default: 300)')
     training_group.add_argument('--no_valiadation', action='store_true', help='disable valiadation at each iteration')
     training_group.add_argument('--no_proj_error', action='store_true', help='disable proj error monitoring')
     training_group.add_argument('--valiadation_step', type=int, default=50, help='valiadation frequency')
@@ -273,7 +347,11 @@ if __name__ == '__main__':
     mapping_group.add_argument('-lr', '--learning_rate', type=float, default=0.001, help='use gradient descent to solve W')
     mapping_group.add_argument('-b', '--beta', type=float, default=0, help='regularization parameter')
     mapping_group.add_argument('--normalize_projection', action='store_true', help='normalize after projection')
-    mapping_group.add_argument('--threshold', type=float, default=1., help='spectral norm constraint')
+
+    threshold_group = parser.add_argument_group()
+    threshold_group.add_argument('--threshold', type=float, default=1., help='spectral norm constraint')
+    threshold_group.add_argument('--threshold_init', type=float, default=1., help='spectral norm constraint')
+    threshold_group.add_argument('--threshold_step', type=float, default=0.05, help='spectral norm constraint')
 
     senti_sample_group = parser.add_argument_group()
     senti_sample_group.add_argument('-n', '--senti_nsample', type=int, default=200, help='sentiment examples')
@@ -310,7 +388,7 @@ if __name__ == '__main__':
                         vocab_cutoff=10000, alpha=5000, senti_nsample=50, spectral=True,
                         learning_rate=0.01, alpha_init=5000, alpha_step=0.01, alpha_inc=True,
                         no_proj_error=False, save_path='checkpoints/cvxse.bin',
-                        dropout_init=1, dropout_interval=1, dropout_step=0.002, epochs=1000,
+                        dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000,
                         no_target_senti=True, model='ubise', normalize_projection=True,
                         threshold=1.0)
 
