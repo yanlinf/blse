@@ -9,6 +9,7 @@ from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
 from utils.cupy_utils import *
+from utils.model import *
 
 
 def plot(files, labels):
@@ -44,10 +45,6 @@ def main(args):
         plt.show()
         sys.exit(0)
 
-    if not os.path.exists('log'):
-        os.mkdir('log')
-    log_file = open(args.log, 'w', encoding='utf-8')
-
     if args.pickle:
         with open(args.source_embedding, 'rb') as fin:
             src_wv = pickle.load(fin)
@@ -56,27 +53,31 @@ def main(args):
     else:
         src_wv = WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
         trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
-    src_emb = xp.array(src_wv.embedding, dtype=xp.float32)
-    trg_emb = xp.array(trg_wv.embedding, dtype=xp.float32)
+
     gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     keep_prob = args.dropout_init
 
     if args.init_num:
         init_dict = get_numeral_init_dict(src_wv, trg_wv)
     elif args.init_unsupervised:
-        init_dict = get_unsupervised_init_dict(src_emb, trg_emb, args.vocab_cutoff, args.csls, args.normalize, args.direction)
+        init_dict = get_unsupervised_init_dict(src_wv.embedding, trg_wv.embedding, args.vocab_cutoff, args.csls, args.normalize, args.direction)
+        init_dict = xp.array(init_dict)
     else:
         init_dict = xp.array(BilingualDict(args.init_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     curr_dict = init_dict
-    del src_wv, trg_wv
 
-    bdi_obj = BDI(src_emb, trg_emb, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both', direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size)
+    bdi_obj = BDI(src_wv.embedding, trg_wv.embedding, batch_size=args.batch_size,
+                  cutoff_size=args.vocab_cutoff, cutoff_type='both', direction=args.direction,
+                  csls=args.csls, batch_size_val=args.val_batch_size,
+                  src_val_ind=gold_dict[:, 0], trg_val_ind=gold_dict[:, 1])
+    bdi_obj.project(xp.identity(args.vector_dim, dtype=xp.float32), 'forward')
+    bdi_obj.project(xp.identity(args.vector_dim, dtype=xp.float32), 'backward')
 
     # self learning
     for epoch in range(args.epochs):
         # calculate W_trg
-        X_src = src_emb[curr_dict[:, 0]]
-        X_trg = trg_emb[curr_dict[:, 1]]
+        X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+        X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
         if args.W_target != '' and epoch == 0:
             with open(args.W_target, 'rb') as fin:
                 W_trg = pickle.load(fin)
@@ -97,9 +98,6 @@ def main(args):
             val_trg_ind = bdi_obj.get_target_indices(gold_dict[:, 0])
             accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
             logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
-            log_file.write('%d,%.4f\n' % (epoch, accuracy))
-
-    log_file.close()
 
     save_model(np.identity(W_trg.shape[0], dtype=np.float32), asnumpy(W_trg),
                args.source_lang, args.target_lang, 'ubi', args.save_path)
@@ -159,7 +157,7 @@ if __name__ == '__main__':
     if args.unsupervised:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=[
                             'center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/unsupervised.csv',
-                            dropout_init=0.2, dropout_interval=40)
+                            dropout_init=0.2, dropout_interval=40, batch_size=3000, val_batch_size=500)
     elif args.unconstrained:
         parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=['center', 'unit'], vocab_cutoff=10000, orthogonal=False, log='./log/unconstrained.csv')
     elif args.supervised5000:
@@ -173,21 +171,21 @@ if __name__ == '__main__':
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/es.bin' if args.pickle else 'emb/wiki.es.vec'
         parser.set_defaults(source_lang='en', target_lang='es',
-                            source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.es.vec', format='fasttext_text',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-es.txt', save_path='checkpoints/en-es-ubi-0.bin')
     elif args.en_ca:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
         parser.set_defaults(source_lang='en', target_lang='ca',
-                            source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.ca.vec', format='fasttext_text',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-ca.txt', save_path='checkpoints/en-ca-ubi-0.bin')
     elif args.en_eu:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
         parser.set_defaults(source_lang='en', target_lang='eu',
-                            source_embedding='emb/wiki.en.vec', target_embedding='emb/wiki.eu.vec', format='fasttext_text',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-eu.txt', save_path='checkpoints/en-eu-ubi-0.bin')
     args = parser.parse_args()
