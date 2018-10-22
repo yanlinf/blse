@@ -56,6 +56,9 @@ def main(args):
         elif model == 'ubi':
             src_proj_emb = np.dot(src_wv.embedding, W_src)
             trg_proj_emb = np.dot(trg_wv.embedding, W_trg)
+        elif model == 'blse':
+            src_proj_emb = np.dot(src_wv.embedding, W_src)
+            trg_proj_emb = np.dot(trg_wv.embedding, W_trg)
 
         fig, ax = plt.subplots()
 
