@@ -12,6 +12,19 @@ SORT_BATCH_SIZE = 10000
 DOT_BATCH_SIZE = 100000
 
 
+def spectral_norm(X):
+    """
+    compute the spectral norm of X
+
+    X: ndarray of rank 2
+
+    returns: int
+    """
+    xp = get_array_module(X)
+    _, s, _ = xp.linalg.svd(X)
+    return s.max()
+
+
 def l2norm(X):
     """
     equivalent to np.linalg.norm
