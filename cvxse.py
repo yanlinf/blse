@@ -24,7 +24,16 @@ def proj_spectral(W, tanh=False, threshold=1.):
     else:
         s[s > threshold] = threshold
         s[s < 0] = 0
+    # DEBUG(s)
     return xp.dot(u, xp.dot(xp.diag(s), vt))
+
+
+def inspect_matrix(X):
+    u, s, vt = xp.linalg.svd(X)
+    logging.debug('Squared F-norm: {0:.4f}'.format(float((X**2).sum())))
+    logging.debug('Spectral norm: {0:.4f}'.format(float(s[0])))
+    logging.debug('10th maximum singular value: {0:.4f}'.format(float(s[10])))
+    logging.debug('mean singular value: {0:.4f}'.format(float(s.mean())))
 
 
 def main(args):
@@ -62,6 +71,13 @@ def main(args):
     else:
         W_src = W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
 
+    if args.loss in (6, 7, 8):
+        u = xp.zeros(args.vector_dim, dtype=xp.float32)
+        v = xp.zeros(args.vector_dim, dtype=xp.float32)
+        b = xp.zeros(())
+        p = xp.zeros(())
+        C = args.C
+
     src_val_ind = xp.array(np.union1d(asnumpy(gold_dict[:, 0]), asnumpy(xsenti)))
     bdi_obj = BDI(src_wv.embedding, trg_wv.embedding, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
                   direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer='dot',
@@ -75,7 +91,7 @@ def main(args):
         logging.info('proj error: %.4f' % proj_error)
     # self learning
     try:
-        for epoch in range(args.epochs):
+        for epoch in range(1, args.epochs):
             logging.debug('running epoch %d...' % epoch)
             logging.debug('alpha: %.4f' % alpha)
             logging.debug('threshold: %.4f' % threshold)
@@ -266,15 +282,15 @@ def main(args):
                         prev_W = W_src.copy()
                         prev_loss = loss
                         grad = 2 * (X_src.T.dot(X_src).dot(W_src) - X_src.T.dot(X_trg)) - (alpha / m) * (xpos.T.dot(xp.tile(pmean, (xpos.shape[0], 1))) +
-                                                                        xneg.T.dot(xp.tile(nmean, (xneg.shape[0], 1))) -
-                                                                        xpos.T.dot(xp.tile(nmean, (xpos.shape[0], 1))) -
-                                                                        xneg.T.dot(xp.tile(pmean, (xneg.shape[0], 1))))
+                                                                                                         xneg.T.dot(xp.tile(nmean, (xneg.shape[0], 1))) -
+                                                                                                         xpos.T.dot(xp.tile(nmean, (xpos.shape[0], 1))) -
+                                                                                                         xneg.T.dot(xp.tile(pmean, (xneg.shape[0], 1))))
                         W_src -= lr * grad
                         W_src = proj_spectral(W_src, threshold=threshold)
                         loss = xp.linalg.norm(X_src.dot(W_src) - X_trg)**2 - (alpha / m) * ((xpos.dot(W_src) * pmean).sum() +
-                                                                                      (xneg.dot(W_src) * nmean).sum() -
-                                                                                      (xpos.dot(W_src) * nmean).sum() -
-                                                                                      (xneg.dot(W_src) * pmean).sum())
+                                                                                            (xneg.dot(W_src) * nmean).sum() -
+                                                                                            (xpos.dot(W_src) * nmean).sum() -
+                                                                                            (xneg.dot(W_src) * pmean).sum())
                         if loss > prev_loss:
                             lr /= 2
                             W_src = prev_W
@@ -282,14 +298,161 @@ def main(args):
                         elif prev_loss - loss < 0.5:
                             break
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    logging.debug('euclidean distance between pmean and nmean: %.4f' % xp.linalg.norm(pmean - nmean))
+                    logging.debug('dot product of pmean and nmean: %.4f' % pmean.dot(nmean))
+                    logging.debug('cosine sim between pmean and nmean: %.4f' % (pmean.dot(nmean) / xp.linalg.norm(pmean) / xp.linalg.norm(nmean)))
+                    logging.debug('l2-norm of pmean %.4f' % xp.linalg.norm(pmean))
+                    logging.debug('l2-norm of nmean %.4f' % xp.linalg.norm(nmean))
 
-                logging.debug('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
-                logging.debug('spectral norm of W_src: %.4f' % spectral_norm(W_src))
-                logging.debug('euclidean distance between pmean and nmean: %.4f' % xp.linalg.norm(pmean - nmean))
-                logging.debug('dot product of pmean and nmean: %.4f' % pmean.dot(nmean))
-                logging.debug('cosine sim between pmean and nmean: %.4f' % (pmean.dot(nmean) / xp.linalg.norm(pmean) / xp.linalg.norm(nmean)))
-                logging.debug('l2-norm of pmean %.4f' % xp.linalg.norm(pmean))
-                logging.debug('l2-norm of nmean %.4f' % xp.linalg.norm(nmean))
+                elif args.loss == 6:
+                    m = args.senti_nsample
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
+                    sind = xp.random.randint(0, xsenti.shape[0], m)
+                    Xs = bdi_obj.src_emb[xsenti[sind]].sum(axis=1) / lsenti[sind, xp.newaxis]
+                    ys = ysenti[sind] * (-2) + 1  # 1 = positive, -1 = negative
+                    DEBUG(ys)
+                    DEBUG(bdi_obj.src_emb[xsenti[sind]].shape)
+                    DEBUG(bdi_obj.src_emb[xsenti[sind]].sum(axis=1).shape)
+                    DEBUG(Xs.shape)
+                    DEBUG(sind)
+                    # loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum() + C * xp.linalg.norm(W_src)**2
+                    loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum()
+
+                    logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    while lr > 0.00000000005:
+                        prev_W = W_src.copy()
+                        prev_u = u.copy()
+                        prev_b = b.copy()
+                        prev_loss = loss
+
+                        xtmp = (Xs.dot(W_src.dot(u)) + b) * ys
+                        mask = (xtmp < 1).astype(xp.float32)  # 1 = activated, 0 = not activated
+
+                        Zs = Xs * (-ys * mask)[:, xp.newaxis]
+                        dW = (alpha / m) * Zs.T.dot(xp.tile(u, (m, 1)))
+                        # dW = -2 * X_src.T.dot(X_trg) + (alpha / m) * Zs.T.dot(xp.tile(u, (m, 1))) + (2 * C) * W_src
+                        du = (alpha / m) * W_src.T.dot(Zs.sum(axis=0))
+                        db = (alpha / m) * (-ys * mask).sum()
+
+                        W_src -= lr * dW
+                        u -= lr * du
+                        b -= lr * db
+                        # W_src = proj_spectral(W_src, threshold=threshold)
+                        W_src = proj_spectral(W_src, threshold=args.threshold)
+
+                        loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum()
+                        # loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum() + C * xp.linalg.norm(W_src)**2
+
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_src, u, b = prev_W, prev_u, prev_b
+                            loss = prev_loss
+                        elif prev_loss - loss < 0.5:
+                            break
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    logging.debug('activated number %d' % int(mask.sum()))
+
+                elif args.loss == 7:
+                    m = args.senti_nsample
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
+                    sind = xp.random.randint(0, xsenti.shape[0], m)
+                    Xs = bdi_obj.src_emb[xsenti[sind]].sum(axis=1) / lsenti[sind, xp.newaxis]
+                    ys = ysenti[sind] * (-2) + 1  # 1 = positive, -1 = negative
+                    DEBUG(ys)
+                    DEBUG(bdi_obj.src_emb[xsenti[sind]].shape)
+                    DEBUG(bdi_obj.src_emb[xsenti[sind]].sum(axis=1).shape)
+                    DEBUG(Xs.shape)
+                    DEBUG(sind)
+                    loss = xp.linalg.norm(X_src.dot(W_src) - X_trg)**2 + (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u - v)) + b) * ys).sum()
+                    logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    while lr > 0.00000005:
+                        prev_W = W_src.copy()
+                        prev_u = u.copy()
+                        prev_b = b.copy()
+                        prev_loss = loss
+
+                        xtmp = (Xs.dot(W_src.dot(u)) + b) * ys
+                        mask = (xtmp < 1).astype(xp.float32)  # 1 = activated, 0 = not activated
+
+                        Zs = Xs * (-ys * mask)[:, xp.newaxis]
+                        dW = 2 * (X_src.T.dot(X_src).dot(W_src) - X_src.T.dot(X_trg)) + (alpha / m) * Zs.T.dot(xp.tile(u, (m, 1)))
+                        du = (alpha / m) * W_src.T.dot(Zs.sum(axis=0))
+                        db = (alpha / m) * (-ys * mask).sum()
+
+                        W_src -= lr * dW
+                        u -= lr * du
+                        b -= lr * db
+                        W_src = proj_spectral(W_src, threshold=threshold)
+
+                        loss = xp.linalg.norm(X_src.dot(W_src) - X_trg)**2 + (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum()
+
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_src, u, b = prev_W, prev_u, prev_b
+                            loss = prev_loss
+                        elif prev_loss - loss < 5:
+                            break
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    logging.debug('activated number %d' % int(mask.sum()))
+
+                elif args.loss == 8:
+                    m = args.senti_nsample
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
+                    sind = xp.random.randint(0, xsenti.shape[0], m)
+                    Xs = bdi_obj.src_emb[xsenti[sind]].sum(axis=1) / lsenti[sind, xp.newaxis]
+                    ys = ysenti[sind] * (-2) + 1  # 1 = positive, -1 = negative
+                    # loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum() + C * xp.linalg.norm(W_src)**2
+                    loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum()
+
+                    logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    cnt = 0
+                    while lr > 0.00000000005:
+                        prev_W = W_src.copy()
+                        prev_u = u.copy()
+                        prev_b = b.copy()
+                        prev_loss = loss
+
+                        xtmp = (Xs.dot(W_src.dot(u)) + b) * ys
+                        mask = (xtmp < 1).astype(xp.float32)  # 1 = activated, 0 = not activated
+
+                        Zs = Xs * (-ys * mask)[:, xp.newaxis]
+                        dW = (alpha / m) * Zs.T.dot(xp.tile(u, (m, 1)))
+                        # dW = -2 * X_src.T.dot(X_trg) + (alpha / m) * Zs.T.dot(xp.tile(u, (m, 1))) + (2 * C) * W_src
+                        du = (alpha / m) * W_src.T.dot(Zs.sum(axis=0))
+                        db = (alpha / m) * (-ys * mask).sum()
+
+                        W_src -= lr * dW
+                        u -= lr * du
+                        b -= lr * db
+                        # W_src = proj_spectral(W_src, threshold=threshold)
+                        W_src = proj_spectral(W_src, threshold=args.threshold)
+
+                        loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum()
+                        # loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum() + C * xp.linalg.norm(W_src)**2
+
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_src, u, b = prev_W, prev_u, prev_b
+                            loss = prev_loss
+                        elif prev_loss - loss < 0.5:
+                            break
+                        else:
+                            cnt += 1
+                            if cnt == 5:
+                                break
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    logging.debug('activated number %d' % int(mask.sum()))
+
+                # logging.debug('squared f-norm of W_src: %.4f' % xp.sum(W_src**2))
+                # logging.debug('spectral norm of W_src: %.4f' % spectral_norm(W_src))
+                # logging.debug('spectral_norm')
+                inspect_matrix(W_src)
                 bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
 
             elif epoch % 2 == 1:
@@ -365,6 +528,72 @@ def main(args):
                     if loss > prev_loss:
                         W_trg = prev_W
 
+                elif args.loss == 7:
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
+                    prev_loss, loss = float('inf'), float('inf')
+                    while lr > 0.0000005:
+                        prev_W = W_trg.copy()
+                        prev_loss = loss
+                        grad = 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
+                        W_trg -= lr * grad
+                        W_trg = proj_spectral(W_trg, threshold=threshold)
+                        loss = xp.linalg.norm(X_trg.dot(W_trg) - X_src)**2
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_trg = prev_W
+                            loss = prev_loss
+                        elif prev_loss - loss < 5:
+                            break
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    if loss > prev_loss:
+                        W_trg = prev_W
+
+                elif args.loss == 6:
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
+                    prev_loss, loss = float('inf'), float('inf')
+                    while lr > 0.006:
+                        prev_W = W_trg.copy()
+                        prev_loss = loss
+                        grad = -2 * X_trg.T.dot(X_src) + (2 * C) * W_trg
+                        W_trg -= lr * grad
+                        W_trg = proj_spectral(W_trg, threshold=threshold)
+                        loss = -2 * (X_trg.dot(W_trg) * X_src).sum() + C * xp.linalg.norm(W_trg)**2
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_trg = prev_W
+                            loss = prev_loss
+                        elif prev_loss - loss < 0.5:
+                            break
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    if loss > prev_loss:
+                        W_trg = prev_W
+
+                elif args.loss == 8:
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
+                    prev_loss, loss = float('inf'), float('inf')
+                    while lr > 0.0005:
+                        prev_W = W_trg.copy()
+                        prev_loss = loss
+                        grad = -2 * X_trg.T.dot(X_src) + (2 * C) * W_trg
+                        W_trg -= lr * grad
+                        W_trg = proj_spectral(W_trg, threshold=threshold)
+                        loss = -2 * (X_trg.dot(W_trg) * X_src).sum() + C * xp.linalg.norm(W_trg)**2
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_trg = prev_W
+                            loss = prev_loss
+                        elif prev_loss - loss < 0.5:
+                            break
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    if loss > prev_loss:
+                        W_trg = prev_W
+
                 else:
                     lr = args.learning_rate
                     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
@@ -387,8 +616,9 @@ def main(args):
                     if loss > prev_loss:
                         W_trg = prev_W
 
-                logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
-                logging.debug('spectral norm of W_src: %.4f' % spectral_norm(W_trg))
+                # logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
+                # logging.debug('spectral norm of W_trg: %.4f' % spectral_norm(W_trg))
+                inspect_matrix(W_trg)
                 bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection)
 
             if not args.no_proj_error:
@@ -396,8 +626,8 @@ def main(args):
                 logging.info('proj error: %.4f' % proj_error)
 
             # dictionary induction
-            if epoch % 2 == 1:
-                curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
+            # if epoch % 2 == 1:
+            curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
             # update keep_prob
             if (epoch + 1) % (args.dropout_interval * 2) == 0:
@@ -422,8 +652,9 @@ def main(args):
                 logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
     finally:
         # save W_trg
-        W_src = proj_spectral(W_src, threshold=args.threshold)
-        W_trg = proj_spectral(W_trg, threshold=args.threshold)
+        if args.spectral:
+            W_src = proj_spectral(W_src, threshold=args.threshold)
+            W_trg = proj_spectral(W_trg, threshold=args.threshold)
         save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
                    args.target_lang, args.model, args.save_path,
                    alpha=args.alpha, alpha_init=args.alpha_init, dropout_init=args.dropout_init)
@@ -431,7 +662,8 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--loss', type=int, choices=[0, 1, 2, 3, 4,5], default=0, help='type of loss function')
+    parser.add_argument('--loss', type=int, choices=[0, 1, 2, 3, 4, 5, 6, 7, 8], default=0, help='type of loss function')
+    parser.add_argument('-C', '--C', type=float, default=0, help='type of loss function')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
