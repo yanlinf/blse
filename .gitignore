@@ -1,4 +1,5 @@
 # Poject specific
+*.zip
 vocab/
 word2vec/trunk/compute-accuracy
 word2vec/trunk/distance
