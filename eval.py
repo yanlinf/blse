@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn import svm
 from sklearn.model_selection import GridSearchCV, PredefinedSplit
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, confusion_matrix
 from sklearn.exceptions import UndefinedMetricWarning, ConvergenceWarning
 from sklearn.utils.testing import ignore_warnings
 import argparse
@@ -63,25 +63,28 @@ def main(args):
                 clf = svm.LinearSVC(C=args.C)
                 clf.fit(train_x, train_y)
                 best_C = args.C
-                test_score = f1_score(test_y, clf.predict(test_x), average='macro')
+                pred = clf.predict(test_x)
             else:
                 cv_fold = np.zeros(train_dev_x.shape[0], dtype=np.int32)
                 cv_fold[:train_x.shape[0]] = -1
                 cv_split = PredefinedSplit(cv_fold)
                 param_grid = {
-                    'C': [0.03, 0.1, 0.3, 1, 3, 10, 30, 100, 300],
+                    'C': [0.1, 0.3, 1, 2, 3, 6, 10, 20, 30, 100, 300],
                 }
                 svc = svm.LinearSVC()
                 clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count(), cv=cv_split)
                 clf.fit(train_dev_x, train_dev_y)
                 best_C = clf.best_params_['C']
                 pred = svm.LinearSVC(C=best_C).fit(train_x, train_y).predict(test_x)
-                test_score = f1_score(test_y, pred, average='macro')
+            test_score = f1_score(test_y, pred, average='macro')
+            conf_mat = confusion_matrix(test_y, pred)
             print('------------------------------------------------------')
             print('Is binary: {0}'.format(is_binary))
             print('Result for {0}:'.format(infile))
             print('Test F1_macro: {0:.4f}'.format(test_score))
             print('Best C: {0}'.format(best_C))
+            print('Confusion matrix:')
+            print(conf_mat)
             if args.output is not None:
                 with open(args.output, 'a', encoding='utf-8') as fout:
                     fout.write('{0},{1},{2},{3},{4},{5:.4f},{6:.2f}\n'.format(infile, src_lang,
