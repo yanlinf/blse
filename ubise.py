@@ -67,6 +67,8 @@ def main(args):
     logging.debug(str((n0, n1, n2, n3)))
     logging.debug(str((m0, m1, m2, m3)))
     sa = xp.arange(n, dtype=xp.int32)
+    if args.normalize_senti:
+        length_normalize(xsenti, inplace=True)
 
     # prepare dictionaries
     gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
@@ -97,6 +99,7 @@ def main(args):
     else:
         W_src = xp.identity(args.vector_dim, dtype=xp.float32)
 
+        W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
         lr = args.learning_rate
         X_src = bdi_obj.src_proj_emb[init_dict[:, 0]]
         X_trg = bdi_obj.trg_emb[init_dict[:, 1]]
@@ -161,13 +164,7 @@ def main(args):
                 ys = (ysenti[sind] >= 2).astype(xp.float32) * (-2) + 1  # 1 = positive, -1 = negative
                 # ts = ((ysenti[sind] == 1) | (ysenti[sind] == 3)).astype(xp.float32) + 1  # 1 = pos/neg, 2 = strpos/strneg
                 ts = xp.ones(m, dtype=xp.float32)
-                # DEBUG(ts)
-                # DEBUG(ts.shape)
-                # ts = ((ysenti[sind] == 1) | (ysenti[sind] == 3)).astype(xp.float32) + 1  # 1 = pos/neg, 2 = strpos/strneg
 
-                W_src.dot(a)
-                Xs.dot(W_src.dot(a))
-                xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys)
                 loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum()
                 logging.debug('loss: {0:.4f}'.format(float(loss)))
                 cnt = 0
@@ -281,6 +278,8 @@ if __name__ == '__main__':
     parser.add_argument('--target_loss', choices=['procruste', 'whitten'], default='procruste', help='target loss function')
     parser.add_argument('--sample', choices=['uniform', 'smooth'], default='uniform', help='sampling method')
     parser.add_argument('--smooth', type=int, default=0.5, help='smoothing power')
+    parser.add_argument('--fine_grained', action='store_true', help='add fine grained loss term')
+    parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
