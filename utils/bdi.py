@@ -116,7 +116,7 @@ class BDI(object):
 
         xp = get_array_module(src_emb, trg_emb, src_val_ind, trg_val_ind)
         self.xp = xp
-        self.trg_emb = xp.array(trg_emb)
+        self.trg_emb = xp.array(trg_emb, dtype=xp.float32)
         self.batch_size = batch_size
         self.cutoff_size = cutoff_size
         self.cutoff_type = cutoff_type
@@ -170,6 +170,9 @@ class BDI(object):
             self.fwd_knn_sim = xp.zeros(self.fwd_trg_size, dtype=xp.float32)
         if direction in ('backward', 'union'):
             self.bwd_knn_sim = xp.zeros(self.bwd_src_size, dtype=xp.float32)
+
+        self.project(xp.identity(src_emb.shape[1], dtype=xp.float32), 'forward')
+        self.project(xp.identity(trg_emb.shape[1], dtype=xp.float32), 'backward', full_trg=True)
 
     def project(self, W, direction='backward', unit_norm=False, scale=False, full_trg=False):
         """
