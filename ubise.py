@@ -49,8 +49,8 @@ def main(args):
     # sentiment array
     pad_id = src_wv.add_word('<pad>', np.zeros(args.vector_dim, dtype=np.float32))
     src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=False).pad(pad_id)
-    xsenti = xp.array(src_wv.embedding[src_ds.train[0]].sum(axis=1) / src_ds.train[2][:, np.newaxis])
-    ysenti = xp.array(src_ds.train[1])
+    xsenti = xp.array(src_wv.embedding[src_ds.train[0]].sum(axis=1) / src_ds.train[2][:, np.newaxis], dtype=xp.float32)
+    ysenti = xp.array(src_ds.train[1], dtype=xp.int32)
     n = ysenti.shape[0]
     n0 = (ysenti == 0).sum()
     n1 = (ysenti == 1).sum()
@@ -126,8 +126,10 @@ def main(args):
     # initialize model parameters
     a = xp.zeros(args.vector_dim, dtype=xp.float32)
     c = xp.zeros(args.vector_dim, dtype=xp.float32)
-    b = xp.zeros(())
-    d = xp.zeros(())
+    e = xp.zeros(args.vector_dim, dtype=xp.float32)
+    b = xp.zeros((), dtype=xp.float32)
+    d = xp.zeros((), dtype=xp.float32)
+    f = xp.zeros((), dtype=xp.float32)
 
     # print alignment error
     if not args.no_proj_error:
@@ -161,43 +163,114 @@ def main(args):
                     si3 = sa[ysenti == 3][xp.random.randint(0, n3, m3)]
                     sind = xp.concatenate((si0, si1, si2, si3), axis=0)
                 Xs = xsenti[sind]
-                ys = (ysenti[sind] >= 2).astype(xp.float32) * (-2) + 1  # 1 = positive, -1 = negative
+                ys = (ysenti[sind] <= 1).astype(xp.float32) * 2 - 1  # 1 = positive, -1 = negative
                 # ts = ((ysenti[sind] == 1) | (ysenti[sind] == 3)).astype(xp.float32) + 1  # 1 = pos/neg, 2 = strpos/strneg
-                ts = xp.ones(m, dtype=xp.float32)
+                ts = xp.ones(m, dtype=xp.float32)  # weigts
 
-                loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum()
-                logging.debug('loss: {0:.4f}'.format(float(loss)))
-                cnt = 0
-                while lr > 0.0000000000000005:
-                    prev_W = W_src.copy()
-                    prev_u = a.copy()
-                    prev_b = b.copy()
-                    prev_loss = loss
+                if args.fine_grained:
+                    spi = sa[ysenti == 1][xp.random.randint(0, n1, m // 2)]
+                    spin = sa[ysenti >= 2][xp.random.randint(0, n2 + n3, (m + 1) // 2)]  # m // 2 + (m + 1) // 2 == m
+                    sni = sa[ysenti == 3][xp.random.randint(0, n3, m // 2)]
+                    snin = sa[ysenti <= 1][xp.random.randint(0, n0 + n1, (m + 1) // 2)]
 
-                    xtmp = (Xs.dot(W_src.dot(a)) + b) * ys
-                    mask = (xtmp < 1).astype(xp.float32)  # 1 = activated, 0 = not activated
+                    pind = xp.concatenate((spi, spin), axis=0)
+                    nind = xp.concatenate((sni, snin), axis=0)
+                    Xp = xsenti[pind]
+                    Xn = xsenti[nind]
+                    yp = (ysenti[pind] <= 1).astype(xp.float32) * 2 - 1
+                    yn = (ysenti[nind] >= 2).astype(xp.float32) * 2 - 1
 
-                    Zs = Xs * (-ys * mask)[:, xp.newaxis]
-                    dW = (alpha / m) * (Zs.T * ts).dot(xp.tile(a, (m, 1)))
-                    du = (alpha / m) * W_src.T.dot((Zs * ts[:, xp.newaxis]).sum(axis=0))
-                    db = (alpha / m) * (-ys * mask).dot(ts).sum()
-                    W_src -= lr * dW
-                    a -= lr * du
-                    b -= lr * db
-                    W_src = proj_spectral(W_src, threshold=threshold)
+                    loss = (alpha / m) * (xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum() +
+                                          xp.maximum(0, 1 - (Xp.dot(W_src.dot(c)) + d) * yp).sum() +
+                                          xp.maximum(0, 1 - (Xn.dot(W_src.dot(e)) + f) * yn).sum()
+                                          )
+                    logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    cnt = 0
+                    while lr > 0.0000000000000005:
+                        prev_W = W_src.copy()
+                        prev_a = a.copy()
+                        prev_b = b.copy()
+                        prev_c = c.copy()
+                        prev_d = d.copy()
+                        prev_e = e.copy()
+                        prev_f = f.copy()
+                        prev_loss = loss
 
+                        masks = ((Xs.dot(W_src.dot(a)) + b) * ys < 1).astype(xp.float32)
+                        maskp = ((Xp.dot(W_src.dot(c)) + d) * yp < 1).astype(xp.float32)
+                        maskn = ((Xn.dot(W_src.dot(e)) + f) * yn < 1).astype(xp.float32)
+
+                        Zs = Xs * (-ys * masks)[:, xp.newaxis]
+                        Zp = Xp * (-yp * maskp)[:, xp.newaxis]
+                        Zn = Xn * (-yn * maskn)[:, xp.newaxis]
+
+                        dW = (alpha / m) * (Zs.T.dot(xp.tile(a, (m, 1))) +
+                                            Zp.T.dot(xp.tile(c, (m, 1))) +
+                                            Zn.T.dot(xp.tile(e, (m, 1)))
+                                            )
+                        da = (alpha / m) * W_src.T.dot(Zs.sum(axis=0))
+                        db = (alpha / m) * (-ys * masks).sum()
+                        dc = (alpha / m) * W_src.T.dot(Zp.sum(axis=0))
+                        dd = (alpha / m) * (-yp * maskp).sum()
+                        de = (alpha / m) * W_src.T.dot(Zn.sum(axis=0))
+                        df = (alpha / m) * (-yn * maskn).sum()
+
+                        W_src = proj_spectral(W_src - lr * dW, threshold=threshold).astype(xp.float32)
+                        a -= lr * da
+                        b -= lr * db
+                        c -= lr * dc
+                        d -= lr * dd
+                        e -= lr * de
+                        f -= lr * df
+
+                        loss = (alpha / m) * (xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum() +
+                                              xp.maximum(0, 1 - (Xp.dot(W_src.dot(c)) + d) * yp).sum() +
+                                              xp.maximum(0, 1 - (Xn.dot(W_src.dot(e)) + f) * yn).sum()
+                                              )
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                        if loss >= prev_loss:
+                            lr /= 2
+                            W_src, a, b, c, d, e, f = prev_W, prev_a, prev_b, prev_c, prev_d, prev_e, prev_f
+                            loss = prev_loss
+                        else:
+                            cnt += 1
+                            if cnt == 10:
+                                break
+                    logging.debug('activated number %d' % int(masks.sum() + maskp.sum() + maskn.sum()))
+
+                else:
                     loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum()
                     logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    cnt = 0
+                    while lr > 0.0000000000000005:
+                        prev_W = W_src.copy()
+                        prev_a = a.copy()
+                        prev_b = b.copy()
+                        prev_loss = loss
 
-                    if loss >= prev_loss:
-                        lr /= 2
-                        W_src, a, b = prev_W, prev_u, prev_b
-                        loss = prev_loss
-                    else:
-                        cnt += 1
-                        if cnt == 10:
-                            break
-                logging.debug('activated number %d' % int(mask.sum()))
+                        xtmp = (Xs.dot(W_src.dot(a)) + b) * ys
+                        mask = (xtmp < 1).astype(xp.float32)  # 1 = activated, 0 = not activated
+
+                        Zs = Xs * (-ys * mask)[:, xp.newaxis]
+                        dW = (alpha / m) * (Zs.T * ts).dot(xp.tile(a, (m, 1)))
+                        da = (alpha / m) * W_src.T.dot((Zs * ts[:, xp.newaxis]).sum(axis=0))
+                        db = (alpha / m) * (-ys * mask).dot(ts).sum()
+                        W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
+                        a -= lr * da
+                        b -= lr * db
+
+                        loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum()
+                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+
+                        if loss >= prev_loss:
+                            lr /= 2
+                            W_src, a, b = prev_W, prev_a, prev_b
+                            loss = prev_loss
+                        else:
+                            cnt += 1
+                            if cnt == 10:
+                                break
+                    logging.debug('activated number %d' % int(mask.sum()))
                 inspect_matrix(W_src)
                 bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
 
