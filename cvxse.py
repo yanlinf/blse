@@ -31,34 +31,42 @@ def proj_spectral(W, tanh=False, threshold=1.):
 def getknn(sc, x, y, k=10):
     xp = get_array_module(sc, x, y)
     sidx = xp.empty((sc.shape[0], k), dtype=xp.int32)
-    for i in range(0, sc.shape[0], 1000):
-        j = min(i + 1000, sc.shape[0])
-        sidx[i:j] = xp.argpartition(sc[i:j], -k, axis=1)[:, -k:]
-    # sidx = xp.argpartition(sc, -k, axis=1)[:, -k:]
-    DEBUG(3)
-    ytopk = y[sidx.flatten(), :]
-    DEBUG(4)
-    ytopk = ytopk.reshape(sidx.shape[0], sidx.shape[1], y.shape[1])
-    DEBUG(5)
-    f = xp.sum(sc[xp.arange(sc.shape[0])[:, None], sidx])
-    DEBUG(6)
-    df = xp.dot(ytopk.sum(1).T, x)
-    DEBUG(7)
+    ind0 = xp.arange(sc.shape[0])
+    min_val = sc.min()
+    f = 0
+    for i in range(k):
+        idx = xp.argmax(sc, axis=1)
+        f += sc[ind0, idx].sum()
+        sc[ind0, idx] = min_val
+        sidx[:, i] = idx
+    ytopk = y[sidx].sum(axis=1)
+    df = xp.dot(ytopk.T, x)
     return f / k, df / k
+
+# orginal version
+# def getknn(sc, x, y, k=10):
+#     xp = get_array_module(sc, x, y)
+#     sidx = xp.empty((sc.shape[0], k), dtype=xp.int32)
+#     for i in range(0, sc.shape[0], 1000):
+#         j = min(i + 1000, sc.shape[0])
+#         sidx[i:j] = xp.argpartition(sc[i:j], -k, axis=1)[:, -k:]
+#     # sidx = xp.argpartition(sc, -k, axis=1)[:, -k:]
+#     ytopk = y[sidx.flatten(), :]
+#     ytopk = ytopk.reshape(sidx.shape[0], sidx.shape[1], y.shape[1])
+#     f = xp.sum(sc[xp.arange(sc.shape[0])[:, None], sidx])
+#     df = xp.dot(ytopk.sum(1).T, x)
+#     return f / k, df / k
 
 
 def rcsls(X_src, Y_tgt, Z_src, Z_tgt, R, knn=10):
-    DEBUG(1)
     xp = get_array_module(X_src, Y_tgt, Z_src, Z_tgt)
     X_trans = xp.dot(X_src, R.T)
     f = 2 * xp.sum(X_trans * Y_tgt)
     df = 2 * xp.dot(Y_tgt.T, X_src)
-    DEBUG(2)
     fk0, dfk0 = getknn(xp.dot(X_trans, Z_tgt.T), X_src, Z_tgt, knn)
     fk1, dfk1 = getknn(xp.dot(xp.dot(Z_src, R.T), Y_tgt.T).T, Y_tgt, Z_src, knn)
-    DEBUG(8)
-    # f = f - fk0 -fk1
-    # df = df - dfk0 - dfk1.T
+    f = f - fk0 - fk1
+    df = df - dfk0 - dfk1.T
     return -f, -df
 
 
@@ -73,6 +81,8 @@ def inspect_matrix(X):
 def main(args):
     logging.info(str(args))
 
+    is_binary = args.loss not in (10, 11)
+
     if args.pickle:
         with open(args.source_embedding, 'rb') as fin:
             src_wv = pickle.load(fin)
@@ -83,7 +93,7 @@ def main(args):
         trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
 
     pad_id = src_wv.add_word('<pad>', np.zeros(args.vector_dim, dtype=np.float32))
-    src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=(args.loss != 10)).pad(pad_id)
+    src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=is_binary).pad(pad_id)
     xsenti = xp.array(src_ds.train[0])
     ysenti = xp.array(src_ds.train[1])
     lsenti = xp.array(src_ds.train[2])
@@ -583,12 +593,8 @@ def main(args):
                     X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
                     sind = xp.random.randint(0, xsenti.shape[0], m)
                     Xs = bdi_obj.src_emb[xsenti[sind]].sum(axis=1) / lsenti[sind, xp.newaxis]
-                    # DEBUG(ysenti[sind])
                     ys = (ysenti[sind] >= 2).astype(xp.float32) * (-2) + 1  # 1 = positive, -1 = negative
                     ts = ((ysenti[sind] == 1) | (ysenti[sind] == 3)).astype(xp.float32) + 1  # 1 = pos/neg, 2 = strpos/strneg
-                    # DEBUG(ys)
-                    # DEBUG(ts)
-                    # loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum() + C * xp.linalg.norm(W_src)**2
                     loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).dot(ts).sum()
 
                     logging.debug('loss: {0:.4f}'.format(float(loss)))
@@ -611,7 +617,6 @@ def main(args):
                         u -= lr * du
                         b -= lr * db
                         W_src = proj_spectral(W_src, threshold=threshold)
-
                         loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).dot(ts).sum()
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
                         # loss = -2 * (X_src.dot(W_src) * X_trg).sum() + (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(u)) + b) * ys).sum() + C * xp.linalg.norm(W_src)**2
@@ -637,96 +642,8 @@ def main(args):
                     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
                     X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
                     W_trg = (1 / 2 / args.beta) * X_trg.T.dot(X_src)
-                    # W_trg = I
 
-                # elif args.loss == 1:
-                #     lr = args.learning_rate
-                #     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
-                #     X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
-                #     prev_loss, loss = float('inf'), float('inf')
-                #     while lr > 0.0006:
-                #         prev_W = W_trg.copy()
-                #         grad = -2 * X_trg.T.dot(X_src)
-                #         W_trg -= lr * grad
-                #         W_trg = proj_spectral(W_trg, threshold=threshold)
-                #         prev_loss = loss
-                #         loss = -2 * (X_trg.dot(W_trg) * X_src).sum()
-                #         if loss > prev_loss:
-                #             lr /= 2
-                #             W_trg = prev_W
-                #             loss = prev_loss
-                #         elif prev_loss - loss < 0.5:
-                #             break
-                #         logging.debug('loss: {0:.4f}'.format(float(loss)))
-                #     if loss > prev_loss:
-                #         W_trg = prev_W
-
-                elif args.loss == 1:
-                    lr = args.learning_rate
-                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
-                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
-                    prev_loss, loss = float('inf'), float('inf')
-                    while lr > 0.0006:
-                        prev_W = W_trg.copy()
-                        grad = 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
-                        W_trg -= lr * grad
-                        W_trg = proj_spectral(W_trg, threshold=threshold)
-                        prev_loss = loss
-                        loss = xp.linalg.norm(X_trg.dot(W_trg) - X_src)**2
-                        if loss > prev_loss:
-                            lr /= 2
-                            W_trg = prev_W
-                            loss = prev_loss
-                        elif prev_loss - loss < 0.5:
-                            break
-                        logging.debug('loss: {0:.4f}'.format(float(loss)))
-                    if loss > prev_loss:
-                        W_trg = prev_W
-
-                elif args.loss == 5:
-                    lr = args.learning_rate
-                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
-                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
-                    prev_loss, loss = float('inf'), float('inf')
-                    while lr > 0.00005:
-                        prev_W = W_trg.copy()
-                        prev_loss = loss
-                        grad = 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
-                        W_trg -= lr * grad
-                        W_trg = proj_spectral(W_trg, threshold=threshold)
-                        loss = xp.linalg.norm(X_trg.dot(W_trg) - X_src)**2
-                        if loss > prev_loss:
-                            lr /= 2
-                            W_trg = prev_W
-                            loss = prev_loss
-                        elif prev_loss - loss < 0.5:
-                            break
-                        logging.debug('loss: {0:.4f}'.format(float(loss)))
-                    if loss > prev_loss:
-                        W_trg = prev_W
-
-                elif args.loss == 7:
-                    lr = args.learning_rate
-                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
-                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
-                    prev_loss, loss = float('inf'), float('inf')
-                    while lr > 0.0000005:
-                        prev_W = W_trg.copy()
-                        prev_loss = loss
-                        grad = 2 * (X_trg.T.dot(X_trg).dot(W_trg) - X_trg.T.dot(X_src))
-                        W_trg -= lr * grad
-                        W_trg = proj_spectral(W_trg, threshold=threshold)
-                        loss = xp.linalg.norm(X_trg.dot(W_trg) - X_src)**2
-                        if loss > prev_loss:
-                            lr /= 2
-                            W_trg = prev_W
-                            loss = prev_loss
-                        elif prev_loss - loss < 5:
-                            break
-                        logging.debug('loss: {0:.4f}'.format(float(loss)))
-                    if loss > prev_loss:
-                        W_trg = prev_W
-
+                # convex relexation with regularization
                 elif args.loss == 6:
                     lr = args.learning_rate
                     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
@@ -749,6 +666,7 @@ def main(args):
                     if loss > prev_loss:
                         W_trg = prev_W
 
+                # convex relexation
                 elif args.loss == 8 or (args.loss in (9, 10) and epoch == 1):
                     lr = args.learning_rate
                     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
@@ -771,7 +689,8 @@ def main(args):
                     if loss > prev_loss:
                         W_trg = prev_W
 
-                elif args.loss in (9, 10):
+                # standard mean square error
+                elif args.loss in (1, 5, 7, 9, 10):
                     lr = args.learning_rate
                     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
                     X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
@@ -793,22 +712,21 @@ def main(args):
                     if loss > prev_loss:
                         W_trg = prev_W
 
+                # rcsls
                 elif args.loss == 11:
                     lr = args.learning_rate
                     cf = args.vocab_cutoff
                     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
                     X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
                     loss, grad = rcsls(X_trg, X_src, bdi_obj.trg_emb[:cf], bdi_obj.src_proj_emb[:cf], W_trg.T, 10)
-                    grad = grad.T
                     logging.debug('loss: {0:.4f}'.format(float(loss)))
                     while lr > 0.0000005:
                         prev_loss = loss
                         prev_W = W_trg.copy()
                         prev_grad = grad.copy()
-                        W_trg -= lr * grad
+                        W_trg -= lr * grad.T
                         W_trg = proj_spectral(W_trg, threshold=threshold)
                         loss, grad = rcsls(X_trg, X_src, bdi_obj.trg_emb[:cf], bdi_obj.src_proj_emb[:cf], W_trg.T, 10)
-                        grad = grad.T
                         if loss > prev_loss:
                             lr /= 2
                             W_trg = prev_W
@@ -817,30 +735,6 @@ def main(args):
                         elif prev_loss - loss < 0.5:
                             break
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
-                    if loss > prev_loss:
-                        W_trg = prev_W
-
-                else:
-                    lr = args.learning_rate
-                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
-                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
-                    prev_loss, loss = float('inf'), float('inf')
-                    while lr > 0.006:
-                        prev_W = W_trg.copy()
-                        prev_loss = loss
-                        grad = -2 * X_trg.T.dot(X_src)
-                        W_trg -= lr * grad
-                        W_trg = proj_spectral(W_trg, threshold=threshold)
-                        loss = -2 * (X_trg.dot(W_trg) * X_src).sum()
-                        if loss > prev_loss:
-                            lr /= 2
-                            W_trg = prev_W
-                            loss = prev_loss
-                        elif prev_loss - loss < 0.5:
-                            break
-                        logging.debug('loss: {0:.4f}'.format(float(loss)))
-                    if loss > prev_loss:
-                        W_trg = prev_W
 
                 # logging.debug('squared f-norm of W_trg: %.4f' % xp.sum(W_trg**2))
                 # logging.debug('spectral norm of W_trg: %.4f' % spectral_norm(W_trg))
