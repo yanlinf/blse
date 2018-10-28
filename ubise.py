@@ -164,26 +164,24 @@ def main(args):
                     sind = xp.concatenate((si0, si1, si2, si3), axis=0)
                 Xs = xsenti[sind]
                 ys = (ysenti[sind] <= 1).astype(xp.float32) * 2 - 1  # 1 = positive, -1 = negative
-                # ts = ((ysenti[sind] == 1) | (ysenti[sind] == 3)).astype(xp.float32) + 1  # 1 = pos/neg, 2 = strpos/strneg
-                ts = xp.ones(m, dtype=xp.float32)  # weigts
+                ts = xp.ones(m, dtype=xp.float32)  # weights
 
                 if args.fine_grained:
                     spi = sa[ysenti == 1][xp.random.randint(0, n1, m // 2)]
-                    spin = sa[ysenti >= 2][xp.random.randint(0, n2 + n3, (m + 1) // 2)]  # m // 2 + (m + 1) // 2 == m
+                    spin = sa[ysenti != 1][xp.random.randint(0, n0 + n2 + n3, (m + 1) // 2)]  # m // 2 + (m + 1) // 2 == m
                     sni = sa[ysenti == 3][xp.random.randint(0, n3, m // 2)]
-                    snin = sa[ysenti <= 1][xp.random.randint(0, n0 + n1, (m + 1) // 2)]
+                    snin = sa[ysenti != 3][xp.random.randint(0, n0 + n1 + n2, (m + 1) // 2)]
 
                     pind = xp.concatenate((spi, spin), axis=0)
                     nind = xp.concatenate((sni, snin), axis=0)
                     Xp = xsenti[pind]
                     Xn = xsenti[nind]
-                    yp = (ysenti[pind] <= 1).astype(xp.float32) * 2 - 1
-                    yn = (ysenti[nind] >= 2).astype(xp.float32) * 2 - 1
+                    yp = (ysenti[pind] == 1).astype(xp.float32) * 2 - 1
+                    yn = (ysenti[nind] == 3).astype(xp.float32) * 2 - 1
 
-                    loss = (alpha / m) * (xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum() +
-                                          xp.maximum(0, 1 - (Xp.dot(W_src.dot(c)) + d) * yp).sum() +
-                                          xp.maximum(0, 1 - (Xn.dot(W_src.dot(e)) + f) * yn).sum()
-                                          )
+                    loss = (1000 / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum() +\
+                        (alpha / m) * (xp.maximum(0, 1 - (Xp.dot(W_src.dot(c)) + d) * yp).sum() +
+                                       xp.maximum(0, 1 - (Xn.dot(W_src.dot(e)) + f) * yn).sum())
                     logging.debug('loss: {0:.4f}'.format(float(loss)))
                     cnt = 0
                     while lr > 0.0000000000000005:
@@ -204,12 +202,11 @@ def main(args):
                         Zp = Xp * (-yp * maskp)[:, xp.newaxis]
                         Zn = Xn * (-yn * maskn)[:, xp.newaxis]
 
-                        dW = (alpha / m) * (Zs.T.dot(xp.tile(a, (m, 1))) +
-                                            Zp.T.dot(xp.tile(c, (m, 1))) +
-                                            Zn.T.dot(xp.tile(e, (m, 1)))
-                                            )
-                        da = (alpha / m) * W_src.T.dot(Zs.sum(axis=0))
-                        db = (alpha / m) * (-ys * masks).sum()
+                        dW = (1000 / m) * Zs.T.dot(xp.tile(a, (m, 1))) +\
+                            (alpha / m) * (Zp.T.dot(xp.tile(c, (m, 1))) +
+                                           Zn.T.dot(xp.tile(e, (m, 1))))
+                        da = (1000 / m) * W_src.T.dot(Zs.sum(axis=0))
+                        db = (1000 / m) * (-ys * masks).sum()
                         dc = (alpha / m) * W_src.T.dot(Zp.sum(axis=0))
                         dd = (alpha / m) * (-yp * maskp).sum()
                         de = (alpha / m) * W_src.T.dot(Zn.sum(axis=0))
@@ -223,10 +220,9 @@ def main(args):
                         e -= lr * de
                         f -= lr * df
 
-                        loss = (alpha / m) * (xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum() +
-                                              xp.maximum(0, 1 - (Xp.dot(W_src.dot(c)) + d) * yp).sum() +
-                                              xp.maximum(0, 1 - (Xn.dot(W_src.dot(e)) + f) * yn).sum()
-                                              )
+                        loss = (1000 / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum() +\
+                            (alpha / m) * (xp.maximum(0, 1 - (Xp.dot(W_src.dot(c)) + d) * yp).sum() +
+                                           xp.maximum(0, 1 - (Xn.dot(W_src.dot(e)) + f) * yn).sum())
                         logging.debug('loss: {0:.4f}'.format(float(loss)))
                         if loss >= prev_loss:
                             lr /= 2
@@ -343,7 +339,11 @@ def main(args):
             W_trg = proj_spectral(W_trg, threshold=args.threshold)
         save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
                    args.target_lang, args.model, args.save_path,
-                   alpha=args.alpha, alpha_init=args.alpha_init, dropout_init=args.dropout_init, a=asnumpy(a), b=asnumpy(b))
+                   alpha=args.alpha, alpha_init=args.alpha_init,
+                   dropout_init=args.dropout_init,
+                   a=asnumpy(a), b=asnumpy(b),
+                   c=asnumpy(c), d=asnumpy(d),
+                   e=asnumpy(e), f=asnumpy(f))
 
 
 if __name__ == '__main__':
