@@ -16,6 +16,36 @@ def DEBUG(arg):
     logging.debug('DEBUG %s' % str(arg))
 
 
+def topkidx(x, k, inplace=False):
+    xp = get_array_module(x, k)
+    res = xp.empty(k, dtype=xp.int32)
+    min_val = x.min()
+    if not inplace:
+        x = x.copy()
+    for i in range(k):
+        res[i] = xp.argmax(x)
+        x[res[i]] = min_val
+    return res
+
+
+def ubise(P, N, a, W, k):
+    xp = get_array_module(P, N, a, W)
+    pw = P.dot(W)
+    nw = N.dot(W)
+    pi = topkidx(-pw.dot(a), k, inplace=True)
+    ni = topkidx(nw.dot(a), k, inplace=True)
+    # DEBUG(pi)
+    # DEBUG(ni)
+    xpw = pw[pi]
+    xnw = nw[ni]
+
+    J = -xpw.dot(a).sum() + xnw.dot(a).sum()
+    # DEBUG(J)
+    dW = -xpw.T.dot(xp.tile(a, (k, 1))) + xnw.T.dot(xp.tile(a, (k, 1)))
+    da = W.T.dot(-xpw.sum(axis=0) + xnw.sum(axis=0))
+    return J / (2 * k), dW / (2 * k), da / (2 * k)
+
+
 def proj_spectral(W, threshold):
     xp = get_array_module(W)
     u, s, vt = xp.linalg.svd(W)
@@ -51,22 +81,25 @@ def main(args):
     src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=False).pad(pad_id)
     xsenti = xp.array(src_wv.embedding[src_ds.train[0]].sum(axis=1) / src_ds.train[2][:, np.newaxis], dtype=xp.float32)
     ysenti = xp.array(src_ds.train[1], dtype=xp.int32)
-    n = ysenti.shape[0]
-    n0 = (ysenti == 0).sum()
-    n1 = (ysenti == 1).sum()
-    n2 = (ysenti == 2).sum()
-    n3 = (ysenti == 3).sum()
-    m = args.senti_nsample
-    if args.sample == 'smooth':
-        ms = np.array([n0, n1, n2, n3])
-        ms = ms**args.smooth
+
+    if args.fine_grained:
+        n = ysenti.shape[0]
+        n0 = (ysenti == 0).sum()
+        n1 = (ysenti == 1).sum()
+        n2 = (ysenti == 2).sum()
+        n3 = (ysenti == 3).sum()
+        m = args.senti_nsample
+        ms = xp.array([n0, n1, n2, n3])
+        if args.sample == 'smooth':
+            ms = ms**args.smooth
         ms = ms * m / ms.sum()
-        ms = ms.astype(np.int32)
-    m0, m1, m2, m3 = ms
-    m3 = m - m0 - m1 - m2
-    logging.debug(str((n0, n1, n2, n3)))
-    logging.debug(str((m0, m1, m2, m3)))
-    sa = xp.arange(n, dtype=xp.int32)
+        ms = ms.astype(xp.int32)
+        m0, m1, m2, _ = ms
+        m3 = m - m0 - m1 - m2
+        logging.debug(str((n0, n1, n2, n3)))
+        logging.debug(str((m0, m1, m2, m3)))
+        sa = xp.arange(n, dtype=xp.int32)
+
     if args.normalize_senti:
         length_normalize(xsenti, inplace=True)
 
@@ -124,7 +157,10 @@ def main(args):
     bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
 
     # initialize model parameters
-    a = xp.zeros(args.vector_dim, dtype=xp.float32)
+    if args.fine_grained:
+        a = xp.zeros(args.vector_dim, dtype=xp.float32)
+    else:
+        a = xp.random.randn(args.vector_dim).astype(xp.float32)
     c = xp.zeros(args.vector_dim, dtype=xp.float32)
     e = xp.zeros(args.vector_dim, dtype=xp.float32)
     b = xp.zeros((), dtype=xp.float32)
@@ -154,19 +190,20 @@ def main(args):
                 X_src = bdi_obj.src_emb[curr_dict[:, 0]]
                 X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
 
-                if args.sample == 'uniform':
-                    sind = xp.random.randint(0, xsenti.shape[0], m)
-                elif args.sample == 'smooth':
-                    si0 = sa[ysenti == 0][xp.random.randint(0, n0, m0)]
-                    si1 = sa[ysenti == 1][xp.random.randint(0, n1, m1)]
-                    si2 = sa[ysenti == 2][xp.random.randint(0, n2, m2)]
-                    si3 = sa[ysenti == 3][xp.random.randint(0, n3, m3)]
-                    sind = xp.concatenate((si0, si1, si2, si3), axis=0)
-                Xs = xsenti[sind]
-                ys = (ysenti[sind] <= 1).astype(xp.float32) * 2 - 1  # 1 = positive, -1 = negative
-                ts = xp.ones(m, dtype=xp.float32)  # weights
-
                 if args.fine_grained:
+                    if args.sample == 'uniform':
+                        sind = xp.random.randint(0, xsenti.shape[0], m)
+                    elif args.sample == 'smooth':
+                        si0 = sa[ysenti == 0][xp.random.randint(0, n0, m0)]
+                        si1 = sa[ysenti == 1][xp.random.randint(0, n1, m1)]
+                        si2 = sa[ysenti == 2][xp.random.randint(0, n2, m2)]
+                        si3 = sa[ysenti == 3][xp.random.randint(0, n3, m3)]
+                        sind = xp.concatenate((si0, si1, si2, si3), axis=0)
+
+                    Xs = xsenti[sind]
+                    ys = (ysenti[sind] <= 1).astype(xp.float32) * 2 - 1  # 1 = positive, -1 = negative
+                    ts = xp.ones(m, dtype=xp.float32)  # weights
+
                     spi = sa[ysenti == 1][xp.random.randint(0, n1, m // 2)]
                     spin = sa[ysenti != 1][xp.random.randint(0, n0 + n2 + n3, (m + 1) // 2)]  # m // 2 + (m + 1) // 2 == m
                     sni = sa[ysenti == 3][xp.random.randint(0, n3, m // 2)]
@@ -235,38 +272,35 @@ def main(args):
                     logging.debug('activated number %d' % int(masks.sum() + maskp.sum() + maskn.sum()))
 
                 else:
-                    loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum()
-                    logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    P = xsenti[ysenti == 0]
+                    N = xsenti[ysenti == 2]
+                    DEBUG(P.shape)
+                    DEBUG(N.shape)
+                    loss, dW, da = ubise(P, N, a, W_src, args.k)
+                    logging.debug('loss: {0:.10f}'.format(float(loss)))
                     cnt = 0
-                    while lr > 0.0000000000000005:
+                    while lr > 1e-30:
+                        prev_loss = loss
+                        prev_dW = dW.copy()
+                        prev_da = da.copy()
                         prev_W = W_src.copy()
                         prev_a = a.copy()
-                        prev_b = b.copy()
-                        prev_loss = loss
+                        # DEBUG(da)
 
-                        xtmp = (Xs.dot(W_src.dot(a)) + b) * ys
-                        mask = (xtmp < 1).astype(xp.float32)  # 1 = activated, 0 = not activated
-
-                        Zs = Xs * (-ys * mask)[:, xp.newaxis]
-                        dW = (alpha / m) * (Zs.T * ts).dot(xp.tile(a, (m, 1)))
-                        da = (alpha / m) * W_src.T.dot((Zs * ts[:, xp.newaxis]).sum(axis=0))
-                        db = (alpha / m) * (-ys * mask).dot(ts).sum()
                         W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
                         a -= lr * da
-                        b -= lr * db
-
-                        loss = (alpha / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum()
-                        logging.debug('loss: {0:.4f}'.format(float(loss)))
-
+                        loss, dW, da = ubise(P, N, a, W_src, args.k)
+                        logging.debug('loss: {0:.10f}'.format(float(loss)))
                         if loss >= prev_loss:
                             lr /= 2
-                            W_src, a, b = prev_W, prev_a, prev_b
+                            W_src, a = prev_W, prev_a,
+                            dW, da = prev_dW, prev_da
                             loss = prev_loss
                         else:
                             cnt += 1
                             if cnt == 10:
                                 break
-                    logging.debug('activated number %d' % int(mask.sum()))
+
                 inspect_matrix(W_src)
                 bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
 
@@ -353,6 +387,7 @@ if __name__ == '__main__':
     parser.add_argument('--smooth', type=int, default=0.5, help='smoothing power')
     parser.add_argument('--fine_grained', action='store_true', help='add fine grained loss term')
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
+    parser.add_argument('-k', '--k', type=int, help='compute k furtest examples')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
