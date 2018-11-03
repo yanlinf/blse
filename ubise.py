@@ -424,7 +424,7 @@ if __name__ == '__main__':
                         learning_rate=0.01, alpha_init=5000, alpha_step=0.01, alpha_inc=True,
                         no_proj_error=False, save_path='checkpoints/cvxse.bin',
                         dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000,
-                        no_target_senti=True, model='ubise', normalize_projection=True,
+                        no_target_senti=True, model='ubise', normalize_projection=False,
                         threshold=1.0,
                         batch_size=5000, val_batch_size=300)
 
