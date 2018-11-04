@@ -197,7 +197,7 @@ def main(args):
                         dW, da, dc, de = dWold, daold, dcold, deold
                     else:
                         cnt += 1
-                        if cnt == 10:
+                        if cnt == args.k:
                             break
 
                 inspect_matrix(W_src)
@@ -285,6 +285,7 @@ if __name__ == '__main__':
     parser.add_argument('--fine_grained', action='store_true', help='add fine grained loss term')
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
     parser.add_argument('-p', '--p', type=float, help='parameter p')
+    parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
@@ -355,7 +356,7 @@ if __name__ == '__main__':
                         vocab_cutoff=10000, alpha=5000, senti_nsample=50, spectral=True,
                         learning_rate=0.01, alpha_init=5000, alpha_step=0.01, alpha_inc=True,
                         no_proj_error=False, save_path='checkpoints/cvxse.bin',
-                        dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=1000,
+                        dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=500,
                         no_target_senti=True, model='ubise', normalize_projection=False,
                         threshold=1.0,
                         batch_size=5000, val_batch_size=300)
