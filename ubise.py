@@ -44,6 +44,13 @@ def ubise(P, N, a, W, p):
     return J, dW, da
 
 
+def ubise_full(P, SP, N, SN, a, c, e, W, p, alpha):
+    J1, dW1, da = ubise(P, N, a, W, p)
+    J2, dW2, dc = ubise(SP, P, c, W, p)
+    J3, dW3, de = ubise(SN, N, e, W, p)
+    return J1 + (J2 + J3) * alpha, dW1 + (dW2 + dW3) * alpha, da, dc * alpha, de * alpha
+
+
 def proj_spectral(W, threshold):
     xp = get_array_module(W)
     u, s, vt = xp.linalg.svd(W)
@@ -91,8 +98,8 @@ def main(args):
 
     # initialize hyper parameters
     keep_prob = args.dropout_init
-    alpha = min(args.alpha, args.alpha_init)
     threshold = min(args.threshold, args.threshold_init)
+    lr = args.learning_rate
 
     # construct BDI object
     bdi_obj = BDI(src_wv.embedding, trg_wv.embedding, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
@@ -150,7 +157,6 @@ def main(args):
     try:
         for epoch in range(args.epochs):
             logging.debug('running epoch %d...' % epoch)
-            logging.debug('alpha: %.4f' % alpha)
             logging.debug('threshold: %.4f' % threshold)
 
             # update current dictionary
@@ -159,37 +165,19 @@ def main(args):
 
             # update W_src
             if epoch % 2 == 0:
-                m = args.senti_nsample
-                lr = args.learning_rate
                 X_src = bdi_obj.src_emb[curr_dict[:, 0]]
                 X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
-                P = xsenti[ysenti == 0]
-                SP = xsenti[ysenti == 1]
-                N = xsenti[ysenti == 2]
-                SN = xsenti[ysenti == 3]
-                J1, dW1, da = ubise(P, N, a, W_src, args.p)
-                J2, dW2, dc = ubise(SP, P, c, W_src, args.p)
-                J3, dW3, de = ubise(SN, N, e, W_src, args.p)
-                J = J1 + (J2 + J3) * alpha
-                dW = dW1 + (dW2 + dW3) * alpha
-                dc *= alpha
-                de *= alpha
+                P, SP = xsenti[ysenti == 0], xsenti[ysenti == 1]
+                N, SN = xsenti[ysenti == 2], xsenti[ysenti == 3]
+                J, dW, da, dc, de = ubise_full(P, SP, N, SN, a, c, e, W_src, args.p, args.alpha)
                 logging.debug('J: {0:.10f}'.format(float(J)))
                 cnt = 0
                 while lr > 1e-30:
                     Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
                     dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
                     W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
-                    a -= lr * da
-                    c -= lr * dc
-                    e -= lr * de
-                    J1, dW1, da = ubise(P, N, a, W_src, args.p)
-                    J2, dW2, dc = ubise(SP, P, c, W_src, args.p)
-                    J3, dW3, de = ubise(SN, N, e, W_src, args.p)
-                    J = J1 + (J2 + J3) * alpha
-                    dW = dW1 + (dW2 + dW3) * alpha
-                    dc *= alpha
-                    de *= alpha
+                    a, c, e = a - lr * da, c - lr * dc, e - lr * de
+                    J, dW, da, dc, de = ubise_full(P, SP, N, SN, a, c, e, W_src, args.p, args.alpha)
                     logging.debug('J: {0:.10f}'.format(float(J)))
                     if J > Jold:
                         lr /= 2
@@ -199,7 +187,6 @@ def main(args):
                         cnt += 1
                         if cnt == args.k:
                             break
-
                 inspect_matrix(W_src)
                 bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
 
@@ -252,9 +239,6 @@ def main(args):
 
             # update keep_prob
             keep_prob = min(1., keep_prob + args.dropout_step)
-
-            # update alpha
-            alpha = min(args.alpha_step + alpha, args.alpha)
 
             # update threshold
             threshold = min(args.threshold_step + threshold, args.threshold)
