@@ -163,11 +163,26 @@ def main(args):
                 lr = args.learning_rate
                 X_src = bdi_obj.src_emb[curr_dict[:, 0]]
                 X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
-                if args.fine_grained:
-                    P = xsenti[ysenti == 0]
-                    SP = xsenti[ysenti == 1]
-                    N = xsenti[ysenti == 2]
-                    SN = xsenti[ysenti == 3]
+                P = xsenti[ysenti == 0]
+                SP = xsenti[ysenti == 1]
+                N = xsenti[ysenti == 2]
+                SN = xsenti[ysenti == 3]
+                J1, dW1, da = ubise(P, N, a, W_src, args.p)
+                J2, dW2, dc = ubise(SP, P, c, W_src, args.p)
+                J3, dW3, de = ubise(SN, N, e, W_src, args.p)
+                J = J1 + (J2 + J3) * alpha
+                dW = dW1 + (dW2 + dW3) * alpha
+                dc *= alpha
+                de *= alpha
+                logging.debug('J: {0:.10f}'.format(float(J)))
+                cnt = 0
+                while lr > 1e-30:
+                    Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
+                    dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
+                    W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
+                    a -= lr * da
+                    c -= lr * dc
+                    e -= lr * de
                     J1, dW1, da = ubise(P, N, a, W_src, args.p)
                     J2, dW2, dc = ubise(SP, P, c, W_src, args.p)
                     J3, dW3, de = ubise(SN, N, e, W_src, args.p)
@@ -176,56 +191,14 @@ def main(args):
                     dc *= alpha
                     de *= alpha
                     logging.debug('J: {0:.10f}'.format(float(J)))
-                    cnt = 0
-                    while lr > 1e-30:
-                        Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
-                        dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
-                        W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
-                        a -= lr * da
-                        c -= lr * dc
-                        e -= lr * de
-                        J1, dW1, da = ubise(P, N, a, W_src, args.p)
-                        J2, dW2, dc = ubise(SP, P, c, W_src, args.p)
-                        J3, dW3, de = ubise(SN, N, e, W_src, args.p)
-                        J = J1 + (J2 + J3) * alpha
-                        dW = dW1 + (dW2 + dW3) * alpha
-                        dc *= alpha
-                        de *= alpha
-                        logging.debug('J: {0:.10f}'.format(float(J)))
-                        if J > Jold:
-                            lr /= 2
-                            J, W, a, c, e = Jold, Wold, aold, cold, eold
-                            dW, da, dc, de = dWold, daold, dcold, deold
-                        else:
-                            cnt += 1
-                            if cnt == 10:
-                                break
-
-                else:
-                    P = xsenti[ysenti == 0]
-                    N = xsenti[ysenti == 2]
-                    loss, dW, da = ubise(P, N, a, W_src, args.p)
-                    logging.debug('loss: {0:.10f}'.format(float(loss)))
-                    cnt = 0
-                    while lr > 1e-30:
-                        prev_loss = loss
-                        prev_dW = dW.copy()
-                        prev_da = da.copy()
-                        prev_W = W_src.copy()
-                        prev_a = a.copy()
-                        W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
-                        a -= lr * da
-                        loss, dW, da = ubise(P, N, a, W_src, args.p)
-                        logging.debug('loss: {0:.10f}'.format(float(loss)))
-                        if loss >= prev_loss:
-                            lr /= 2
-                            W_src, a = prev_W, prev_a,
-                            dW, da = prev_dW, prev_da
-                            loss = prev_loss
-                        else:
-                            cnt += 1
-                            if cnt == 10:
-                                break
+                    if J > Jold:
+                        lr /= 2
+                        J, W, a, c, e = Jold, Wold, aold, cold, eold
+                        dW, da, dc, de = dWold, daold, dcold, deold
+                    else:
+                        cnt += 1
+                        if cnt == 10:
+                            break
 
                 inspect_matrix(W_src)
                 bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
