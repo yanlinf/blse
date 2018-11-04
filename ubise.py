@@ -270,6 +270,7 @@ if __name__ == '__main__':
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
     parser.add_argument('-p', '--p', type=float, help='parameter p')
     parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
+    parser.add_argument('-a', '--alpha', type=float, default=5, help='trade-off between sentiment and alignment')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
@@ -311,15 +312,6 @@ if __name__ == '__main__':
     threshold_group.add_argument('--threshold_init', type=float, default=1., help='spectral norm constraint')
     threshold_group.add_argument('--threshold_step', type=float, default=0.05, help='spectral norm constraint')
 
-    senti_sample_group = parser.add_argument_group()
-    senti_sample_group.add_argument('-n', '--senti_nsample', type=int, default=200, help='sentiment examples')
-    senti_sample_group.add_argument('--sample_type', choices=['full', 'same', 'pos-neg'], default='full', help='positive examples')
-
-    alpha_group = parser.add_argument_group()
-    alpha_group.add_argument('-a', '--alpha', type=float, default=5, help='trade-off between sentiment and alignment')
-    alpha_group.add_argument('--alpha_init', type=float, default=0., help='initial value of alpha')
-    alpha_group.add_argument('--alpha_step', type=float, default=0.02, help='multiply alpha by a factor each epoch')
-
     induction_group = parser.add_argument_group()
     induction_group.add_argument('-vc', '--vocab_cutoff', default=10000, type=int, help='restrict the vocabulary to k most frequent words')
     induction_group.add_argument('--csls', type=int, default=10, help='number of csls neighbours')
@@ -337,13 +329,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=False, normalize=['center', 'unit'],
-                        vocab_cutoff=10000, alpha=5000, senti_nsample=50, spectral=True,
-                        learning_rate=0.01, alpha_init=5000, alpha_step=0.01, alpha_inc=True,
-                        no_proj_error=False, save_path='checkpoints/cvxse.bin',
-                        dropout_init=0.1, dropout_interval=1, dropout_step=0.002, epochs=500,
-                        no_target_senti=True, model='ubise', normalize_projection=False,
-                        threshold=1.0,
-                        batch_size=5000, val_batch_size=300)
+                        vocab_cutoff=10000, alpha=1., spectral=True,
+                        learning_rate=0.1, save_path='checkpoints/ubise.bin',
+                        dropout_init=0.1, dropout_step=0.002, epochs=500, normalize_projection=False,
+                        threshold=1.0, batch_size=5000, val_batch_size=300)
 
     if args.en_es:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
