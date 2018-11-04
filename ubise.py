@@ -28,22 +28,20 @@ def topkidx(x, k, inplace=False):
     return res
 
 
-def ubise(P, N, a, W, k):
+def ubise(P, N, a, W, p):
     xp = get_array_module(P, N, a, W)
     pw = P.dot(W)
     nw = N.dot(W)
-    pi = topkidx(-pw.dot(a), k, inplace=True)
-    ni = topkidx(nw.dot(a), k, inplace=True)
-    # DEBUG(pi)
-    # DEBUG(ni)
+    k1 = int(P.shape[0] * p)
+    k2 = int(N.shape[0] * p)
+    pi = topkidx(-pw.dot(a), k1, inplace=True)
+    ni = topkidx(nw.dot(a), k2, inplace=True)
     xpw = pw[pi]
     xnw = nw[ni]
-
-    J = -xpw.dot(a).sum() + xnw.dot(a).sum()
-    # DEBUG(J)
-    dW = -xpw.T.dot(xp.tile(a, (k, 1))) + xnw.T.dot(xp.tile(a, (k, 1)))
-    da = W.T.dot(-xpw.sum(axis=0) + xnw.sum(axis=0))
-    return J / (2 * k), dW / (2 * k), da / (2 * k)
+    J = -xpw.dot(a).mean() + xnw.dot(a).mean()
+    dW = -xpw.T.dot(xp.tile(a, (k1, 1))) / k1 + xnw.T.dot(xp.tile(a, (k2, 1))) / k2
+    da = W.T.dot(-xpw.mean(axis=0) + xnw.mean(axis=0))
+    return J, dW, da
 
 
 def proj_spectral(W, threshold):
@@ -274,9 +272,7 @@ def main(args):
                 else:
                     P = xsenti[ysenti == 0]
                     N = xsenti[ysenti == 2]
-                    DEBUG(P.shape)
-                    DEBUG(N.shape)
-                    loss, dW, da = ubise(P, N, a, W_src, args.k)
+                    loss, dW, da = ubise(P, N, a, W_src, args.p)
                     logging.debug('loss: {0:.10f}'.format(float(loss)))
                     cnt = 0
                     while lr > 1e-30:
@@ -285,11 +281,9 @@ def main(args):
                         prev_da = da.copy()
                         prev_W = W_src.copy()
                         prev_a = a.copy()
-                        # DEBUG(da)
-
                         W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
                         a -= lr * da
-                        loss, dW, da = ubise(P, N, a, W_src, args.k)
+                        loss, dW, da = ubise(P, N, a, W_src, args.p)
                         logging.debug('loss: {0:.10f}'.format(float(loss)))
                         if loss >= prev_loss:
                             lr /= 2
@@ -387,7 +381,7 @@ if __name__ == '__main__':
     parser.add_argument('--smooth', type=int, default=0.5, help='smoothing power')
     parser.add_argument('--fine_grained', action='store_true', help='add fine grained loss term')
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
-    parser.add_argument('-k', '--k', type=int, help='compute k furtest examples')
+    parser.add_argument('-p', '--p', type=float, help='parameter p')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
