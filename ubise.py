@@ -80,24 +80,6 @@ def main(args):
     xsenti = xp.array(src_wv.embedding[src_ds.train[0]].sum(axis=1) / src_ds.train[2][:, np.newaxis], dtype=xp.float32)
     ysenti = xp.array(src_ds.train[1], dtype=xp.int32)
 
-    if args.fine_grained:
-        n = ysenti.shape[0]
-        n0 = (ysenti == 0).sum()
-        n1 = (ysenti == 1).sum()
-        n2 = (ysenti == 2).sum()
-        n3 = (ysenti == 3).sum()
-        m = args.senti_nsample
-        ms = xp.array([n0, n1, n2, n3])
-        if args.sample == 'smooth':
-            ms = ms**args.smooth
-        ms = ms * m / ms.sum()
-        ms = ms.astype(xp.int32)
-        m0, m1, m2, _ = ms
-        m3 = m - m0 - m1 - m2
-        logging.debug(str((n0, n1, n2, n3)))
-        logging.debug(str((m0, m1, m2, m3)))
-        sa = xp.arange(n, dtype=xp.int32)
-
     if args.normalize_senti:
         length_normalize(xsenti, inplace=True)
 
@@ -155,15 +137,9 @@ def main(args):
     bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
 
     # initialize model parameters
-    if args.fine_grained:
-        a = xp.zeros(args.vector_dim, dtype=xp.float32)
-    else:
-        a = xp.random.randn(args.vector_dim).astype(xp.float32)
-    c = xp.zeros(args.vector_dim, dtype=xp.float32)
-    e = xp.zeros(args.vector_dim, dtype=xp.float32)
-    b = xp.zeros((), dtype=xp.float32)
-    d = xp.zeros((), dtype=xp.float32)
-    f = xp.zeros((), dtype=xp.float32)
+    a = xp.random.randn(args.vector_dim).astype(xp.float32)
+    c = xp.random.randn(args.vector_dim).astype(xp.float32)
+    e = xp.random.randn(args.vector_dim).astype(xp.float32)
 
     # print alignment error
     if not args.no_proj_error:
@@ -187,87 +163,43 @@ def main(args):
                 lr = args.learning_rate
                 X_src = bdi_obj.src_emb[curr_dict[:, 0]]
                 X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
-
                 if args.fine_grained:
-                    if args.sample == 'uniform':
-                        sind = xp.random.randint(0, xsenti.shape[0], m)
-                    elif args.sample == 'smooth':
-                        si0 = sa[ysenti == 0][xp.random.randint(0, n0, m0)]
-                        si1 = sa[ysenti == 1][xp.random.randint(0, n1, m1)]
-                        si2 = sa[ysenti == 2][xp.random.randint(0, n2, m2)]
-                        si3 = sa[ysenti == 3][xp.random.randint(0, n3, m3)]
-                        sind = xp.concatenate((si0, si1, si2, si3), axis=0)
-
-                    Xs = xsenti[sind]
-                    ys = (ysenti[sind] <= 1).astype(xp.float32) * 2 - 1  # 1 = positive, -1 = negative
-                    ts = xp.ones(m, dtype=xp.float32)  # weights
-
-                    spi = sa[ysenti == 1][xp.random.randint(0, n1, m // 2)]
-                    spin = sa[ysenti != 1][xp.random.randint(0, n0 + n2 + n3, (m + 1) // 2)]  # m // 2 + (m + 1) // 2 == m
-                    sni = sa[ysenti == 3][xp.random.randint(0, n3, m // 2)]
-                    snin = sa[ysenti != 3][xp.random.randint(0, n0 + n1 + n2, (m + 1) // 2)]
-
-                    pind = xp.concatenate((spi, spin), axis=0)
-                    nind = xp.concatenate((sni, snin), axis=0)
-                    Xp = xsenti[pind]
-                    Xn = xsenti[nind]
-                    yp = (ysenti[pind] == 1).astype(xp.float32) * 2 - 1
-                    yn = (ysenti[nind] == 3).astype(xp.float32) * 2 - 1
-
-                    loss = (1000 / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum() +\
-                        (alpha / m) * (xp.maximum(0, 1 - (Xp.dot(W_src.dot(c)) + d) * yp).sum() +
-                                       xp.maximum(0, 1 - (Xn.dot(W_src.dot(e)) + f) * yn).sum())
-                    logging.debug('loss: {0:.4f}'.format(float(loss)))
+                    P = xsenti[ysenti == 0]
+                    SP = xsenti[ysenti == 1]
+                    N = xsenti[ysenti == 2]
+                    SN = xsenti[ysenti == 3]
+                    J1, dW1, da = ubise(P, N, a, W_src, args.p)
+                    J2, dW2, dc = ubise(SP, P, c, W_src, args.p)
+                    J3, dW3, de = ubise(SN, N, e, W_src, args.p)
+                    J = J1 + (J2 + J3) * alpha
+                    dW = dW1 + (dW2 + dW3) * alpha
+                    dc *= alpha
+                    de *= alpha
+                    logging.debug('J: {0:.10f}'.format(float(J)))
                     cnt = 0
-                    while lr > 0.0000000000000005:
-                        prev_W = W_src.copy()
-                        prev_a = a.copy()
-                        prev_b = b.copy()
-                        prev_c = c.copy()
-                        prev_d = d.copy()
-                        prev_e = e.copy()
-                        prev_f = f.copy()
-                        prev_loss = loss
-
-                        masks = ((Xs.dot(W_src.dot(a)) + b) * ys < 1).astype(xp.float32)
-                        maskp = ((Xp.dot(W_src.dot(c)) + d) * yp < 1).astype(xp.float32)
-                        maskn = ((Xn.dot(W_src.dot(e)) + f) * yn < 1).astype(xp.float32)
-
-                        Zs = Xs * (-ys * masks)[:, xp.newaxis]
-                        Zp = Xp * (-yp * maskp)[:, xp.newaxis]
-                        Zn = Xn * (-yn * maskn)[:, xp.newaxis]
-
-                        dW = (1000 / m) * Zs.T.dot(xp.tile(a, (m, 1))) +\
-                            (alpha / m) * (Zp.T.dot(xp.tile(c, (m, 1))) +
-                                           Zn.T.dot(xp.tile(e, (m, 1))))
-                        da = (1000 / m) * W_src.T.dot(Zs.sum(axis=0))
-                        db = (1000 / m) * (-ys * masks).sum()
-                        dc = (alpha / m) * W_src.T.dot(Zp.sum(axis=0))
-                        dd = (alpha / m) * (-yp * maskp).sum()
-                        de = (alpha / m) * W_src.T.dot(Zn.sum(axis=0))
-                        df = (alpha / m) * (-yn * maskn).sum()
-
-                        W_src = proj_spectral(W_src - lr * dW, threshold=threshold).astype(xp.float32)
+                    while lr > 1e-30:
+                        Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
+                        dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
+                        W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
                         a -= lr * da
-                        b -= lr * db
                         c -= lr * dc
-                        d -= lr * dd
                         e -= lr * de
-                        f -= lr * df
-
-                        loss = (1000 / m) * xp.maximum(0, 1 - (Xs.dot(W_src.dot(a)) + b) * ys).dot(ts).sum() +\
-                            (alpha / m) * (xp.maximum(0, 1 - (Xp.dot(W_src.dot(c)) + d) * yp).sum() +
-                                           xp.maximum(0, 1 - (Xn.dot(W_src.dot(e)) + f) * yn).sum())
-                        logging.debug('loss: {0:.4f}'.format(float(loss)))
-                        if loss >= prev_loss:
+                        J1, dW1, da = ubise(P, N, a, W_src, args.p)
+                        J2, dW2, dc = ubise(SP, P, c, W_src, args.p)
+                        J3, dW3, de = ubise(SN, N, e, W_src, args.p)
+                        J = J1 + (J2 + J3) * alpha
+                        dW = dW1 + (dW2 + dW3) * alpha
+                        dc *= alpha
+                        de *= alpha
+                        logging.debug('J: {0:.10f}'.format(float(J)))
+                        if J > Jold:
                             lr /= 2
-                            W_src, a, b, c, d, e, f = prev_W, prev_a, prev_b, prev_c, prev_d, prev_e, prev_f
-                            loss = prev_loss
+                            J, W, a, c, e = Jold, Wold, aold, cold, eold
+                            dW, da, dc, de = dWold, daold, dcold, deold
                         else:
                             cnt += 1
                             if cnt == 10:
                                 break
-                    logging.debug('activated number %d' % int(masks.sum() + maskp.sum() + maskn.sum()))
 
                 else:
                     P = xsenti[ysenti == 0]
@@ -369,9 +301,7 @@ def main(args):
                    args.target_lang, args.model, args.save_path,
                    alpha=args.alpha, alpha_init=args.alpha_init,
                    dropout_init=args.dropout_init,
-                   a=asnumpy(a), b=asnumpy(b),
-                   c=asnumpy(c), d=asnumpy(d),
-                   e=asnumpy(e), f=asnumpy(f))
+                   a=asnumpy(a), c=asnumpy(c), e=asnumpy(e))
 
 
 if __name__ == '__main__':
