@@ -266,7 +266,6 @@ if __name__ == '__main__':
     parser.add_argument('--target_loss', choices=['procruste', 'whitten'], default='procruste', help='target loss function')
     parser.add_argument('--sample', choices=['uniform', 'smooth'], default='uniform', help='sampling method')
     parser.add_argument('--smooth', type=int, default=0.5, help='smoothing power')
-    parser.add_argument('--fine_grained', action='store_true', help='add fine grained loss term')
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
     parser.add_argument('-p', '--p', type=float, help='parameter p')
     parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
