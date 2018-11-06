@@ -23,7 +23,7 @@ def main(args):
 
     if args.output is not None:
         with open(args.output, 'w', encoding='utf-8') as fout:
-            fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro,best_C\n')
+            fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro,best_f1_macro,best_C\n')
     for infile in args.W:
         dic = load_model(infile)
         W_src = dic['W_source']
@@ -54,6 +54,8 @@ def main(args):
             trg_ds = SentimentDataset('datasets/%s/opener_sents/' % trg_lang).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
             train_dev_x = np.concatenate((src_ds.train[0], trg_ds.dev[0]), axis=0)
             train_dev_y = np.concatenate((src_ds.train[1], trg_ds.dev[1]), axis=0)
+            train_test_x = np.concatenate((src_ds.train[0], trg_ds.test[0]), axis=0)
+            train_test_y = np.concatenate((src_ds.train[1], trg_ds.test[1]), axis=0)
             train_x = src_ds.train[0]
             train_y = src_ds.train[1]
             test_x = trg_ds.test[0]
@@ -77,20 +79,24 @@ def main(args):
                 best_C = clf.best_params_['C']
                 pred = svm.LinearSVC(C=best_C).fit(train_x, train_y).predict(test_x)
             test_score = f1_score(test_y, pred, average='macro')
-            conf_mat = confusion_matrix(test_y, pred)
+            best_clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count(),
+                                    cv=PredefinedSplit([-1] * train_x.shape[0] + [0] * test_x.shape[0])).fit(train_test_x, train_test_y)
+            best_test_f1 = best_clf.best_score_
+            best_C = best_clf.best_params_['C']
             print('------------------------------------------------------')
             print('Is binary: {0}'.format(is_binary))
             print('Result for {0}:'.format(infile))
             print('Test F1_macro: {0:.4f}'.format(test_score))
+            print('Best test F1_macro: {0:.4f}'.format(best_test_f1))
             print('Best C: {0}'.format(best_C))
             print('Confusion matrix:')
-            print(conf_mat)
+            print(confusion_matrix(test_y, pred))
             if args.output is not None:
                 with open(args.output, 'a', encoding='utf-8') as fout:
-                    fout.write('{0},{1},{2},{3},{4},{5:.4f},{6:.2f}\n'.format(infile, src_lang,
-                                                                              trg_lang, model,
-                                                                              is_binary, test_score,
-                                                                              best_C))
+                    fout.write('{0},{1},{2},{3},{4},{5:.4f},{6:.4f},{7:.2f}\n'.format(infile, src_lang,
+                                                                                      trg_lang, model,
+                                                                                      is_binary, test_score,
+                                                                                      best_test_f1, best_C))
 
 
 if __name__ == '__main__':
