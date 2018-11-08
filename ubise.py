@@ -44,10 +44,10 @@ def ubise(P, N, a, W, p):
     return J, dW, da
 
 
-def ubise_full(P, SP, N, SN, a, c, e, W, p, alpha):
+def ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W, p, alpha):
     J1, dW1, da = ubise(P, N, a, W, p)
-    J2, dW2, dc = ubise(SP, P, c, W, p)
-    J3, dW3, de = ubise(SN, N, e, W, p)
+    J2, dW2, dc = ubise(SP, SPN, c, W, p)
+    J3, dW3, de = ubise(SN, SNN, e, W, p)
     return J1 + (J2 + J3) * alpha, dW1 + (dW2 + dW3) * alpha, da, dc * alpha, de * alpha
 
 
@@ -86,6 +86,10 @@ def main(args):
     src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=False).pad(pad_id)
     xsenti = xp.array(src_wv.embedding[src_ds.train[0]].sum(axis=1) / src_ds.train[2][:, np.newaxis], dtype=xp.float32)
     ysenti = xp.array(src_ds.train[1], dtype=xp.int32)
+    P, SP = xsenti[ysenti == 0], xsenti[ysenti == 1]
+    N, SN = xsenti[ysenti == 2], xsenti[ysenti == 3]
+    SPN = xp.concatenate((P, N, SN), axis=0)
+    SNN = xp.concatenate((P, SP, N), axis=0)
 
     if args.normalize_senti:
         length_normalize(xsenti, inplace=True)
@@ -167,17 +171,21 @@ def main(args):
             if epoch % 2 == 0:
                 X_src = bdi_obj.src_emb[curr_dict[:, 0]]
                 X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
-                P, SP = xsenti[ysenti == 0], xsenti[ysenti == 1]
-                N, SN = xsenti[ysenti == 2], xsenti[ysenti == 3]
-                J, dW, da, dc, de = ubise_full(P, SP, N, SN, a, c, e, W_src, args.p, args.alpha)
+                if args.model == 'ovo':
+                    J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+                elif args.model == 'ovr':
+                    J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
                 logging.debug('J: {0:.10f}'.format(float(J)))
                 cnt = 0
-                while lr > 1e-30:
+                while lr > 1e-40:
                     Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
                     dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
                     W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
                     a, c, e = a - lr * da, c - lr * dc, e - lr * de
-                    J, dW, da, dc, de = ubise_full(P, SP, N, SN, a, c, e, W_src, args.p, args.alpha)
+                    if args.model == 'ovo':
+                        J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+                    elif args.model == 'ovr':
+                        J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
                     logging.debug('J: {0:.10f}'.format(float(J)))
                     if J > Jold:
                         lr /= 2
@@ -250,14 +258,13 @@ def main(args):
                 accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
                 logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
     finally:
-        # save W_trg
+        # save W_src and W_trg
         if args.spectral:
             W_src = proj_spectral(W_src, threshold=args.threshold)
             W_trg = proj_spectral(W_trg, threshold=args.threshold)
         save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
                    args.target_lang, args.model, args.save_path,
-                   alpha=args.alpha, alpha_init=args.alpha_init,
-                   dropout_init=args.dropout_init,
+                   alpha=args.alpha, dropout_init=args.dropout_init,
                    a=asnumpy(a), c=asnumpy(c), e=asnumpy(e))
 
 
@@ -270,11 +277,11 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--p', type=float, help='parameter p')
     parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
     parser.add_argument('-a', '--alpha', type=float, default=5, help='trade-off between sentiment and alignment')
+    parser.add_argument('--model', choices=['ovo', 'ovr'], default='ovr', help='source objective function')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
     training_group.add_argument('--target_lang', default='es', help='target language')
-    training_group.add_argument('--model', choices=['ubi', 'ubise'], help='model type')
     training_group.add_argument('-e', '--epochs', default=500, type=int, help='training epochs (default: 500)')
     training_group.add_argument('-bs', '--batch_size', default=3000, type=int, help='training batch size (default: 3000)')
     training_group.add_argument('-vbs', '--val_batch_size', default=300, type=int, help='training batch size (default: 300)')
