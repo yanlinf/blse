@@ -48,6 +48,9 @@ def main(args):
         elif model == 'blse':
             src_wv.embedding.dot(W_src, out=src_proj_emb)
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
+        else:
+            src_wv.embedding.dot(W_src, out=src_proj_emb)
+            trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
 
         for is_binary in (True, False):
             src_ds = SentimentDataset('datasets/%s/opener_sents/' % src_lang).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
