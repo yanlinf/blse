@@ -21,6 +21,15 @@ from utils.model import *
 def main(args):
     print(str(args))
 
+    param_grid = {
+        'C': [0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 30000],
+    }
+
+    if args.multi_class == 'ovr':
+        svc = svm.LinearSVC()
+    else:
+        svc = svm.SVC(kernel='linear')
+
     if args.output is not None:
         with open(args.output, 'w', encoding='utf-8') as fout:
             fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro,best_f1_macro,best_C\n')
@@ -65,7 +74,10 @@ def main(args):
             test_y = trg_ds.test[1]
 
             if args.C is not None:
-                clf = svm.LinearSVC(C=args.C)
+                if args.multi_class == 'ovr':
+                    clf = svm.LinearSVC(C=args.C)
+                else:
+                    clf = svm.SVC(C=args.C, kernel='linear')
                 clf.fit(train_x, train_y)
                 best_C = args.C
                 pred = clf.predict(test_x)
@@ -73,14 +85,14 @@ def main(args):
                 cv_fold = np.zeros(train_dev_x.shape[0], dtype=np.int32)
                 cv_fold[:train_x.shape[0]] = -1
                 cv_split = PredefinedSplit(cv_fold)
-                param_grid = {
-                    'C': [0.1, 0.3, 1, 2, 3, 6, 10, 20, 30, 100, 300],
-                }
-                svc = svm.LinearSVC()
+
                 clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count(), cv=cv_split)
                 clf.fit(train_dev_x, train_dev_y)
                 best_C = clf.best_params_['C']
-                pred = svm.LinearSVC(C=best_C).fit(train_x, train_y).predict(test_x)
+                if args.multi_class == 'ovr':
+                    pred = svm.LinearSVC(C=best_C).fit(train_x, train_y).predict(test_x)
+                else:
+                    pred = svm.SVC(C=best_C, kernel='linear').fit(train_x, train_y).predict(test_x)
             test_score = f1_score(test_y, pred, average='macro')
             best_clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count(),
                                     cv=PredefinedSplit([-1] * train_x.shape[0] + [0] * test_x.shape[0])).fit(train_test_x, train_test_y)
@@ -111,6 +123,10 @@ if __name__ == '__main__':
     parser.add_argument('-C', '--C',
                         type=float,
                         help='train svm with fixed C')
+    parser.add_argument('--multi_class',
+                        choices=['ovr', 'ovo'],
+                        default='ovr',
+                        help='multi-class strategy (default: ovr)')
     parser.add_argument('-o', '--output',
                         help='output file')
     parser.add_argument('--debug',
