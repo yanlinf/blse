@@ -1,14 +1,10 @@
 import numpy as np
-from sklearn import svm
-from sklearn.model_selection import GridSearchCV, PredefinedSplit
-from sklearn.metrics import make_scorer, f1_score
 import argparse
 from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
-from multiprocessing import cpu_count
+from utils.model import *
 import pickle
-import logging
 
 
 def get_W_target(source_emb, target_emb, dict_obj, orthogonal):
@@ -53,83 +49,32 @@ def get_W_source(source_emb, target_emb, dict_obj, orthogonal):
     return W_source
 
 
-def cal_proj_loss(source_emb, target_emb, dict_obj):
-    X_source = source_emb[dict_obj[:, 0]]  # shape (dict_size, vec_dim)
-    X_target = target_emb[dict_obj[:, 1]]  # shape (dict_size, vec_dim)
-    return np.sum(np.square(X_source - X_target))
-
-
-def lookup_and_shuffle(X, y, emb, binary=False):
-    X_new = np.zeros((len(X), emb.shape[1]))
-    for i, line in enumerate(X):
-        if len(line) == 0:
-            logging.warning('ZERO LENGTH EXAMPLE')
-            continue
-        X_new[i] = np.mean(emb[line], axis=0)
-    X = X_new
-
-    perm = np.random.permutation(X.shape[0])
-    X, y = X[perm], y[perm]
-    if binary:
-        y = (y >= 2).astype(np.int32)
-    return X, y
-
-
 def main(args):
-    logging.info(str(args))
+    print(str(args))
 
-    # load word embedding
-    source_wordvecs = WordVecs(
-        args.source_embedding, normalize=args.normalize)
-    target_wordvecs = WordVecs(
-        args.target_embedding, normalize=args.normalize)
+    # load source and target embeddings
+    if args.pickle:
+        with open(args.source_embedding, 'rb') as fin:
+            src_wv = pickle.load(fin)
+        with open(args.target_embedding, 'rb') as fin:
+            trg_wv = pickle.load(fin)
+    else:
+        src_wv = WordVecs(args.source_embedding, emb_format=args.format).normalize(args.normalize)
+        trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
 
     # load bilingual lexicon
-    dict_obj = BilingualDict(args.dictionary).filter(
-        lambda x: x[0] != '-').get_indexed_dictionary(source_wordvecs, target_wordvecs)
+    dict_obj = BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv)
 
-    source_dataset = SentimentDataset(
-        args.source_dataset).to_index(source_wordvecs)
-    target_dataset = SentimentDataset(
-        args.target_dataset).to_index(target_wordvecs)
-
-    # create bilingual embedding
+    # compute W_src and W_trg
+    vec_dim = src_wv.vec_dim
     if args.project_source:
-        proj_source_emb = np.matmul(source_wordvecs.embedding, get_W_source(
-            source_wordvecs.embedding, target_wordvecs.embedding, dict_obj, args.orthogonal))
-        proj_target_emb = target_wordvecs.embedding
+        W_src = get_W_source(src_wv.embedding, trg_wv.embedding, dict_obj, args.orthogonal)
+        W_trg = np.identity(vec_dim, dtype=np.float32)
     else:
-        proj_source_emb = source_wordvecs.embedding
-        proj_target_emb = np.matmul(target_wordvecs.embedding, get_W_target(
-            source_wordvecs.embedding, target_wordvecs.embedding, dict_obj, args.orthogonal))
+        W_src = np.identity(vec_dim, dtype=np.float32)
+        W_trg = get_W_target(src_wv.embedding, trg_wv.embedding, dict_obj, args.orthogonal)
 
-    logging.info('projection loss before projection: %.2f' % cal_proj_loss(
-        source_wordvecs.embedding, target_wordvecs.embedding, dict_obj))
-    logging.info('projection loss after projection: %.2f' % cal_proj_loss(
-        proj_source_emb, proj_target_emb, dict_obj))
-
-    # embedding lookup and prepare traning data
-    train_x = source_dataset.train[
-        0] + source_dataset.dev[0] + source_dataset.test[0]
-    train_y = np.concatenate(
-        (source_dataset.train[1], source_dataset.dev[1], source_dataset.test[1]), axis=0)
-
-    train_x, train_y = lookup_and_shuffle(
-        train_x, train_y, proj_source_emb, args.binary)
-    test_x, test_y = lookup_and_shuffle(*target_dataset.train, proj_target_emb, args.binary)
-
-    # train linear SVM classifier and tune parameter C
-    param_grid = {
-        'C': [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100],
-    }
-    svc = svm.LinearSVC()
-    clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count())
-
-    clf.fit(train_x, train_y)
-
-    print('Test F1_macro: %.4f' % clf.score(test_x, test_y))
-    print('Best params: ', clf.best_params_)
-    print('CV result:', clf.cv_results_)
+    save_model(W_src, W_trg, args.source_lang, args.target_lang, 'procruste', args.save_path)
 
 
 if __name__ == '__main__':
@@ -149,32 +94,51 @@ if __name__ == '__main__':
     parser.add_argument('-te', '--target_embedding',
                         help='monolingual word embedding of the target language (default: ./emb/es.bin)',
                         default='./emb/es.bin')
-    parser.add_argument('-d', '--dictionary',
+    parser.add_argument('-gd', '--gold_dictionary',
                         help='bilingual dictionary of source and target language (default: ./lexicons/bingliu/en-es.txt',
                         default='./lexicons/bingliu/en-es.txt')
-    parser.add_argument('-sd', '--source_dataset',
-                        help='sentiment dataset of the source language',
-                        default='./datasets/en/opener_sents/')
-    parser.add_argument('-td', '--target_dataset',
-                        help='sentiment dataset of the target language',
-                        default='./datasets/es/opener_sents/')
     parser.add_argument('--project_source',
                         help='project source embedding (default: project target)',
                         action='store_true')
     parser.add_argument('--normalize',
-                        help='mean center and normalize word vectors',
-                        action='store_true')
+                        choices=['unit', 'center', ],
+                        nargs='*',
+                        default=['center', 'unit'],
+                        help='normalization actions')
     parser.add_argument('--orthogonal',
                         help='apply orthogonal restriction to the projection matrix',
                         action='store_true')
-    parser.add_argument('--debug',
-                        help='print debug info',
-                        action='store_const',
-                        dest='loglevel',
-                        default=logging.INFO,
-                        const=logging.DEBUG)
+    parser.add_argument('--pickle',
+                        action='store_true',
+                        help='load from pickled wordvecs')
+    parser.add_argument('--save_path',
+                        default='checkpoints/artetxe.bin',
+                        help='save path')
+
+    lang_group = parser.add_mutually_exclusive_group()
+    lang_group.add_argument('--en_es', action='store_true', help='train english-spanish embedding')
+    lang_group.add_argument('--en_ca', action='store_true', help='train english-catalan embedding')
+    lang_group.add_argument('--en_eu', action='store_true', help='train english-basque embedding')
 
     args = parser.parse_args()
-    logging.basicConfig(level=args.loglevel,
-                        format='%(asctime)s: %(levelname)s: %(message)s')
+    if args.en_es:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/es.bin' if args.pickle else 'emb/wiki.es.vec'
+        parser.set_defaults(source_lang='en', target_lang='es',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            gold_dictionary='lexicons/apertium/en-es.txt')
+    elif args.en_ca:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
+        parser.set_defaults(source_lang='en', target_lang='ca',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            gold_dictionary='lexicons/apertium/en-ca.txt')
+    elif args.en_eu:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
+        parser.set_defaults(source_lang='en', target_lang='eu',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            gold_dictionary='lexicons/apertium/en-eu.txt')
+
+    args = parser.parse_args()
     main(args)
