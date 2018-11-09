@@ -1,4 +1,5 @@
 # Poject specific
+tmp/
 *.zip
 vocab/
 word2vec/trunk/compute-accuracy
