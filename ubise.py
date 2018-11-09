@@ -169,8 +169,9 @@ def main(args):
 
             # update W_src
             if epoch % 2 == 0:
-                X_src = bdi_obj.src_emb[curr_dict[:, 0]]
-                X_trg = bdi_obj.trg_proj_emb[curr_dict[:, 1]]
+                if args.model == '0':
+                    continue
+
                 if args.model == 'ovo':
                     J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
                 elif args.model == 'ovr':
@@ -253,7 +254,7 @@ def main(args):
 
             # valiadation
             if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
-                bdi_obj.project(W_trg, 'backward', unit_norm=True, full_trg=True)
+                bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
                 val_trg_ind = bdi_obj.get_target_indices(gold_dict[:, 0])
                 accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
                 logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
@@ -262,6 +263,7 @@ def main(args):
         if args.spectral:
             W_src = proj_spectral(W_src, threshold=args.threshold)
             W_trg = proj_spectral(W_trg, threshold=args.threshold)
+        model = 'ubise' if args.normalize_projection else args.model
         save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
                    args.target_lang, args.model, args.save_path,
                    alpha=args.alpha, dropout_init=args.dropout_init,
@@ -274,10 +276,10 @@ if __name__ == '__main__':
     parser.add_argument('--sample', choices=['uniform', 'smooth'], default='uniform', help='sampling method')
     parser.add_argument('--smooth', type=int, default=0.5, help='smoothing power')
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
-    parser.add_argument('-p', '--p', type=float, help='parameter p')
+    parser.add_argument('-p', '--p', type=float, default=0.7, help='parameter p')
     parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
     parser.add_argument('-a', '--alpha', type=float, default=5, help='trade-off between sentiment and alignment')
-    parser.add_argument('--model', choices=['ovo', 'ovr'], default='ovr', help='source objective function')
+    parser.add_argument('--model', choices=['ovo', 'ovr', '0'], default='ovr', help='source objective function')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
