@@ -361,21 +361,29 @@ class SentimentDataset(object):
 
         Returns: self
         """
-        def ind2vec(X, y, shuffle):
-            size = len(X)
-            vec_dim = emb.shape[1]
-            X_new = np.zeros((size, vec_dim), dtype=np.float32)
-            for i, row in enumerate(X):
-                if len(row) > 0:
-                    X_new[i] = np.mean(emb[row], axis=0)
+        def ind2vec(X, y, shuffle, mean):
+            if mean:
+                size = len(X)
+                vec_dim = emb.shape[1]
+                X_new = np.zeros((size, vec_dim), dtype=np.float32)
+                for i, row in enumerate(X):
+                    if len(row) > 0:
+                        X_new[i] = np.mean(emb[row], axis=0)
+            else:
+                X_new = emb[X]
             if shuffle:
                 perm = np.random.permutation(X_new.shape[0])
                 X_new, y = X_new[perm], y[perm]
             return X_new, y
 
-        self.train = ind2vec(*self.train, shuffle=shuffle)
-        self.dev = ind2vec(*self.dev, shuffle=shuffle)
-        self.test = ind2vec(*self.test, shuffle=shuffle)
+        if len(self.train) == 2:
+            self.train = ind2vec(*self.train, shuffle=shuffle, mean=True)
+            self.dev = ind2vec(*self.dev, shuffle=shuffle, mean=True)
+            self.test = ind2vec(*self.test, shuffle=shuffle, mean=True)
+        else:
+            self.train = ind2vec(*self.train[:2], shuffle=shuffle, mean=False)
+            self.dev = ind2vec(*self.dev[:2], shuffle=shuffle, mean=False)
+            self.test = ind2vec(*self.test[:2], shuffle=shuffle, mean=False)
         return self
 
 
