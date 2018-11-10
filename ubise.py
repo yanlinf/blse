@@ -59,22 +59,22 @@ def proj_spectral(W, threshold):
     return xp.dot(u, xp.dot(xp.diag(s), vt))
 
 
-def l2normalize(x):
+def proj_l2(x):
     xp = get_array_module(x)
-    return x / xp.linalg.norm(x)
+    return x / max(xp.linalg.norm(x) / 100, 1)
 
 
 def inspect_matrix(X):
     u, s, vt = xp.linalg.svd(X)
-    logging.debug('Squared F-norm: {0:.4f}'.format(float((X**2).sum())))
-    logging.debug('Spectral norm: {0:.4f}'.format(float(s[0])))
-    logging.debug('10th maximum singular value: {0:.4f}'.format(float(s[10])))
-    logging.debug('mean singular value: {0:.4f}'.format(float(s.mean())))
-    logging.debug('top 6 singular values: {0}'.format(str(s[:6])))
+    # logging.debug('Squared F-norm: {0:.4f}'.format(float((X**2).sum())))
+    # logging.debug('Spectral norm: {0:.4f}'.format(float(s[0])))
+    # logging.debug('10th maximum singular value: {0:.4f}'.format(float(s[10])))
+    print('mean singular value: {0:.4f}'.format(float(s.mean())))
+    print('top 6 singular values: {0}'.format(str(s[:6])))
 
 
 def main(args):
-    logging.info(str(args))
+    print(str(args))
 
     # load source and target embeddings
     if args.pickle:
@@ -118,7 +118,7 @@ def main(args):
     # print alignment error
     if not args.no_proj_error:
         proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
-        logging.info('proj error: %.4f' % proj_error)
+        print('proj error: %.4f' % proj_error)
 
     # initialize W_src and W_trg
     if args.load is not None:
@@ -153,38 +153,40 @@ def main(args):
     bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
 
     # initialize model parameters
-    a = l2normalize(xp.random.randn(args.vector_dim).astype(xp.float32))
-    c = l2normalize(xp.random.randn(args.vector_dim).astype(xp.float32))
-    e = l2normalize(xp.random.randn(args.vector_dim).astype(xp.float32))
+    print('Intializing a/c/e......')
+    a = xp.random.randn(args.vector_dim).astype(xp.float32) * 10
+    c = xp.random.randn(args.vector_dim).astype(xp.float32) * 10
+    e = xp.random.randn(args.vector_dim).astype(xp.float32) * 10
     if args.model == 'ovo':
         J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
     elif args.model == 'ovr':
         J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
-    logging.debug('J: {0:.10f}'.format(float(J)))
+    print('\rJ: {0:.10f}'.format(float(J)), end='')
     while lr > 1e-5:
         Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
         dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
-        a, c, e = l2normalize(a - lr * da), l2normalize(c - lr * dc), l2normalize(e - lr * de)
+        a, c, e = (a - lr * da), (c - lr * dc), (e - lr * de)
         if args.model == 'ovo':
             J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
         elif args.model == 'ovr':
             J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
-        logging.debug('J: {0:.10f}'.format(float(J)))
+        print('\rJ: {0:.10f}'.format(float(J)), end='')
         if J > Jold:
             lr /= 2
             J, W, a, c, e = Jold, Wold, aold, cold, eold
             dW, da, dc, de = dWold, daold, dcold, deold
+    print()
 
     # print alignment error
     if not args.no_proj_error:
         proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
-        logging.info('proj error: %.4f' % proj_error)
+        print('proj error: %.4f' % proj_error)
 
     # self learning
     try:
         for epoch in range(args.epochs):
-            logging.debug('running epoch %d...' % epoch)
-            logging.debug('threshold: %.4f' % threshold)
+            print('running epoch %d...' % epoch)
+            print('threshold: %.4f' % threshold)
 
             # update current dictionary
             if epoch % 2 == 0:
@@ -199,18 +201,18 @@ def main(args):
                     J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
                 elif args.model == 'ovr':
                     J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
-                logging.debug('J: {0:.10f}'.format(float(J)))
+                print('\rJ: {0:.10f}'.format(float(J)), end='')
                 cnt = 0
                 while lr > 1e-40:
                     Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
                     dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
                     W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
-                    a, c, e = l2normalize(a - lr * da), l2normalize(c - lr * dc), l2normalize(e - lr * de)
+                    a, c, e = (a - lr * da), (c - lr * dc), (e - lr * de)
                     if args.model == 'ovo':
                         J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
                     elif args.model == 'ovr':
                         J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
-                    logging.debug('J: {0:.10f}'.format(float(J)))
+                    print('\rJ: {0:.10f}'.format(float(J)), end='')
                     if J > Jold:
                         lr /= 2
                         J, W, a, c, e = Jold, Wold, aold, cold, eold
@@ -219,6 +221,7 @@ def main(args):
                         cnt += 1
                         if cnt == args.k:
                             break
+                print()
                 inspect_matrix(W_src)
                 bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
 
@@ -243,7 +246,8 @@ def main(args):
                             loss = prev_loss
                         elif prev_loss - loss < 1:
                             break
-                        logging.debug('loss: {0:.4f}'.format(float(loss)))
+                        print('\rloss: {0:.4f}'.format(float(loss)), end='')
+                    print()
 
                 elif args.target_loss == 'whitten':
                     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
@@ -267,7 +271,7 @@ def main(args):
 
             if not args.no_proj_error:
                 proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
-                logging.info('proj error: %.4f' % proj_error)
+                print('proj error: %.4f' % proj_error)
 
             # update keep_prob
             keep_prob = min(1., keep_prob + args.dropout_step)
@@ -280,7 +284,7 @@ def main(args):
                 bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
                 val_trg_ind = bdi_obj.get_target_indices(gold_dict[:, 0])
                 accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
-                logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
+                print('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
     finally:
         # save W_src and W_trg
         if args.spectral:
