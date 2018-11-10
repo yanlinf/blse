@@ -59,6 +59,11 @@ def proj_spectral(W, threshold):
     return xp.dot(u, xp.dot(xp.diag(s), vt))
 
 
+def l2normalize(x):
+    xp = get_array_module(x)
+    return x / xp.linalg.norm(x)
+
+
 def inspect_matrix(X):
     u, s, vt = xp.linalg.svd(X)
     logging.debug('Squared F-norm: {0:.4f}'.format(float((X**2).sum())))
@@ -148,9 +153,27 @@ def main(args):
     bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
 
     # initialize model parameters
-    a = xp.random.randn(args.vector_dim).astype(xp.float32)
-    c = xp.random.randn(args.vector_dim).astype(xp.float32)
-    e = xp.random.randn(args.vector_dim).astype(xp.float32)
+    a = l2normalize(xp.random.randn(args.vector_dim).astype(xp.float32))
+    c = l2normalize(xp.random.randn(args.vector_dim).astype(xp.float32))
+    e = l2normalize(xp.random.randn(args.vector_dim).astype(xp.float32))
+    if args.model == 'ovo':
+        J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+    elif args.model == 'ovr':
+        J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
+    logging.debug('J: {0:.10f}'.format(float(J)))
+    while lr > 1e-5:
+        Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
+        dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
+        a, c, e = l2normalize(a - lr * da), l2normalize(c - lr * dc), l2normalize(e - lr * de)
+        if args.model == 'ovo':
+            J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+        elif args.model == 'ovr':
+            J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
+        logging.debug('J: {0:.10f}'.format(float(J)))
+        if J > Jold:
+            lr /= 2
+            J, W, a, c, e = Jold, Wold, aold, cold, eold
+            dW, da, dc, de = dWold, daold, dcold, deold
 
     # print alignment error
     if not args.no_proj_error:
@@ -182,7 +205,7 @@ def main(args):
                     Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
                     dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
                     W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
-                    a, c, e = a - lr * da, c - lr * dc, e - lr * de
+                    a, c, e = l2normalize(a - lr * da), l2normalize(c - lr * dc), l2normalize(e - lr * de)
                     if args.model == 'ovo':
                         J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
                     elif args.model == 'ovr':
@@ -278,7 +301,7 @@ if __name__ == '__main__':
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
     parser.add_argument('-p', '--p', type=float, default=0.7, help='parameter p')
     parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
-    parser.add_argument('-a', '--alpha', type=float, default=5, help='trade-off between sentiment and alignment')
+    parser.add_argument('-a', '--alpha', type=float, default=0.5, help='trade-off between sentiment and alignment')
     parser.add_argument('--model', choices=['ovo', 'ovr', '0'], default='ovr', help='source objective function')
     parser.add_argument('--scorer', choices=['dot', 'euclidean'], default='dot', help='retrieval method')
 
