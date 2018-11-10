@@ -48,7 +48,7 @@ def ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W, p, alpha):
     J1, dW1, da = ubise(P, N, a, W, p)
     J2, dW2, dc = ubise(SP, SPN, c, W, p)
     J3, dW3, de = ubise(SN, SNN, e, W, p)
-    return J1 + (J2 + J3) * alpha, dW1 + (dW2 + dW3) * alpha, da, dc * alpha, de * alpha
+    return (1 - alpha) * J1 + (J2 + J3) * alpha, (1 - alpha) * dW1 + (dW2 + dW3) * alpha, (1 - alpha) * da, dc * alpha, de * alpha
 
 
 def proj_spectral(W, threshold):
@@ -107,7 +107,7 @@ def main(args):
 
     # construct BDI object
     bdi_obj = BDI(src_wv.embedding, trg_wv.embedding, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
-                  direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer='dot',
+                  direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer=args.scorer,
                   src_val_ind=gold_dict[:, 0], trg_val_ind=gold_dict[:, 1])
 
     # print alignment error
@@ -280,6 +280,7 @@ if __name__ == '__main__':
     parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
     parser.add_argument('-a', '--alpha', type=float, default=5, help='trade-off between sentiment and alignment')
     parser.add_argument('--model', choices=['ovo', 'ovr', '0'], default='ovr', help='source objective function')
+    parser.add_argument('--scorer', choices=['dot', 'euclidean'], default='dot', help='retrieval method')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
