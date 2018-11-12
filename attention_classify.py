@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 from sklearn.metrics import f1_score
+import pickle
 from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
@@ -10,15 +11,17 @@ import logging
 
 class AttenAverage(object):
     """
-    CNN for sentiment classification.
+    Self attention for sentiment classification.
     """
-    def __init__(self, sess, vec_dim, nclasses, learning_rate, batch_size, num_epoch):
+
+    def __init__(self, sess, vec_dim, nclasses, learning_rate, batch_size, num_epoch, num_atten=4):
         self.sess = sess
         self.vec_dim = vec_dim
         self.nclasses = nclasses
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.num_epoch = num_epoch
+        self.num_atten = num_atten
         self._build_graph()
         self.sess.run(tf.global_variables_initializer())
 
@@ -26,17 +29,19 @@ class AttenAverage(object):
         self.inputs = tf.placeholder(tf.float32, shape=(None, 64, self.vec_dim))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
 
-        W1 = tf.get_variable('W1', (self.vec_dim, 1), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
-        b1 = tf.get_variable('b1', (), tf.float32, initializer=tf.zeros_initializer())
-        atten = tf.reshape(self.inputs, (-1, self.vec_dim)) @ W1 + b1  # shape (batch_size, 64)
-        atten_norm = tf.nn.softmax(tf.reshape(atten, (-1, 64)), axis=-1)
+        W1 = tf.get_variable('W1', (self.vec_dim, self.num_atten), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+        b1 = tf.get_variable('b1', (self.num_atten), tf.float32, initializer=tf.zeros_initializer())
+        atten = tf.reshape(self.inputs, (-1, self.vec_dim)) @ W1 + b1
+        atten_norm = tf.nn.softmax(tf.reduce_max(tf.reshape(atten, (-1, 64, self.num_atten)), axis=-1), axis=-1)  # shape (batch_size, 64)
         self.atten_norm = atten_norm
 
         L1 = tf.expand_dims(atten_norm, axis=-1) * self.inputs  # shape (batch_size, 64, 300)
         L1 = tf.reduce_sum(L1, axis=1)  # shape (batch_size, 300)
 
+        self.L1 = L1
+
         W2 = tf.get_variable('W2', (self.vec_dim, self.nclasses), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
-        b2 = tf.get_variable('b2', (), tf.float32, initializer=tf.zeros_initializer())
+        b2 = tf.get_variable('b2', (self.nclasses), tf.float32, initializer=tf.zeros_initializer())
 
         logits = L1 @ W2 + b2
 
@@ -52,16 +57,18 @@ class AttenAverage(object):
             for index, offset in enumerate(range(0, nsample, self.batch_size)):
                 xs = train_x[offset:offset + self.batch_size]
                 ys = train_y[offset:offset + self.batch_size]
-                _, loss_, pred_, = self.sess.run([self.optimizer, self.loss, self.pred], 
-                                                        {self.inputs: xs, self.labels: ys})
+                _, loss_, pred_, = self.sess.run([self.optimizer, self.loss, self.pred],
+                                                 {self.inputs: xs, self.labels: ys})
                 loss += loss_ * len(xs)
                 pred[offset:offset + self.batch_size] = pred_
             loss /= nsample
             fscore = f1_score(train_y, pred, average='macro')
-            logging.info('epoch: %d  f1_macro: %.4f  loss: %.6f' % (epoch, fscore, loss))
 
             if test_x is not None and test_y is not None:
-                logging.info('Test f1_macro: %.4f' % self.score(test_x, test_y))
+                print('\repoch: {}   f1: {:.4f}   loss: {:.6f}   test_f1: {:.4f}'.format(epoch, fscore, loss, self.score(test_x, test_y)), end='')
+            else:
+                print('\repoch: {}   f1: {:.4f}   loss: {:.6f}   test_f1: {:.4f}'.format(epoch, fscore, loss), end='')
+        print()
 
     def predict(self, test_x):
         pred = self.sess.run(self.pred, {self.inputs: test_x})
@@ -76,6 +83,9 @@ class AttenAverage(object):
     def predict_attention_scores(self, test_x):
         atten_ = self.sess.run(self.atten_norm, {self.inputs: test_x})
         return atten_
+
+    def get_senti_x(self, X):
+        return self.sess.run(self.L1, {self.inputs: X})
 
 
 def make_data(X, y, embedding, vec_dim, binary, pad_id, shuffle=True):
@@ -100,23 +110,31 @@ def print_examples_with_attention(X, y, pred, wordvecs, attention):
 
 def main(args):
     logging.info(str(args))
-    source_wordvecs = WordVecs(args.source_embedding, normalize=args.normalize)
-    source_pad_id = source_wordvecs.add_word('<PAD>', np.zeros(args.vector_dim))
-    source_dataset = SentimentDataset(args.source_dataset).to_index(source_wordvecs)
-    train_x, train_y = make_data(*source_dataset.train, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id)
-    test_x, test_y = make_data(*source_dataset.test, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id)
+    with open(args.source_embedding, 'rb') as fin:
+        src_wv = pickle.load(fin)
+    vec_dim = src_wv.embedding.shape[1]
+    src_pad_id = src_wv.add_word('<PAD>', np.zeros(vec_dim))
+    src_ds = SentimentDataset(args.source_dataset).to_index(src_wv)
+    train_x, train_y = make_data(*src_ds.train, src_wv.embedding, vec_dim, args.binary, src_pad_id)
+    test_x, test_y = make_data(*src_ds.test, src_wv.embedding, vec_dim, args.binary, src_pad_id)
     with tf.Session() as sess:
-        model = AttenAverage(sess, args.vector_dim, (2 if args.binary else 4),
-                         args.learning_rate, args.batch_size, args.epochs)
+        model = AttenAverage(sess, vec_dim, (2 if args.binary else 4),
+                             args.learning_rate, args.batch_size, args.epochs)
         model.fit(train_x, train_y, test_x, test_y)
         logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
-        
-        train_x, train_y = make_data(*source_dataset.train, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
-        test_x, test_y = make_data(*source_dataset.test, source_wordvecs.embedding, args.vector_dim, args.binary, source_pad_id, shuffle=False)
-        print_examples_with_attention(source_dataset.test[0][:50], source_dataset.test[1][:50], 
-                          model.predict(test_x[:50]), source_wordvecs, model.predict_attention_scores(test_x[:50]))
-        print_examples_with_attention(source_dataset.train[0][:50], source_dataset.train[1][:50], 
-                          model.predict(train_x[:50]), source_wordvecs, model.predict_attention_scores(train_x[:50]))
+
+        train_x, train_y = make_data(*src_ds.train, src_wv.embedding, vec_dim, args.binary, src_pad_id, shuffle=False)
+        test_x, test_y = make_data(*src_ds.test, src_wv.embedding, vec_dim, args.binary, src_pad_id, shuffle=False)
+
+        xsenti = model.get_senti_x(train_x)
+        ysenti = train_y
+        with open('pickle/senti.bin', 'wb') as fout:
+            pickle.dump((xsenti, ysenti), fout)
+
+        # print_examples_with_attention(src_ds.test[0][:50], src_ds.test[1][:50],
+        #                   model.predict(test_x[:50]), src_wv, model.predict_attention_scores(test_x[:50]))
+        # print_examples_with_attention(src_ds.train[0][:50], src_ds.train[1][:50],
+        #                   model.predict(train_x[:50]), src_wv, model.predict_attention_scores(train_x[:50]))
 
 
 if __name__ == '__main__':
@@ -138,17 +156,10 @@ if __name__ == '__main__':
                         type=int)
     parser.add_argument('-se', '--source_embedding',
                         help='monolingual word embedding of the source language (default: ./emb/en.bin)',
-                        default='./emb/en.bin')
+                        default='./pickle/en.bin')
     parser.add_argument('-sd', '--source_dataset',
                         help='sentiment dataset of the source language',
                         default='./datasets/en/opener_sents/')
-    parser.add_argument('-vd', '--vector_dim',
-                        help='dimension of each word vector (default: 300)',
-                        default=300,
-                        type=int) 
-    parser.add_argument('--normalize',
-                        help='mean center and normalize word vectors',
-                        action='store_true')
     parser.add_argument('--debug',
                         help='print debug info',
                         action='store_const',
