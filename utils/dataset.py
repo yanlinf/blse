@@ -297,8 +297,11 @@ class SentimentDataset(object):
         """
         def load(d):
             def load_category(category):
-                with open(os.path.join(d, category), 'r', encoding='utf-8') as fin:
-                    sents = fin.readlines()
+                try:
+                    with open(os.path.join(d, category), 'r', encoding='utf-8') as fin:
+                        sents = fin.readlines()
+                except Exception:
+                    return []
                 return [row.split() for row in sents]
 
             ans = [load_category(cate)
