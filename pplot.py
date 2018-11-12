@@ -12,7 +12,7 @@ from utils.bdi import *
 from utils.model import *
 
 
-COLORS = ['b', 'b', 'r', 'g', 'k', 'y', 'c']
+COLORS = ['b', 'r', 'g', 'k', 'y', 'c']
 EMB_PATH = 'pickle/%s.bin'
 SENTI_PATH = 'categories/categories.%s'
 
