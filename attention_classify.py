@@ -9,6 +9,9 @@ from utils.bdi import *
 import logging
 
 
+MAX_PAD_LEN = 256
+
+
 class AttenAverage(object):
     """
     Self attention for sentiment classification.
@@ -26,16 +29,16 @@ class AttenAverage(object):
         self.sess.run(tf.global_variables_initializer())
 
     def _build_graph(self):
-        self.inputs = tf.placeholder(tf.float32, shape=(None, 64, self.vec_dim))
+        self.inputs = tf.placeholder(tf.float32, shape=(None, MAX_PAD_LEN, self.vec_dim))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
 
         W1 = tf.get_variable('W1', (self.vec_dim, self.num_atten), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
         b1 = tf.get_variable('b1', (self.num_atten), tf.float32, initializer=tf.zeros_initializer())
         atten = tf.reshape(self.inputs, (-1, self.vec_dim)) @ W1 + b1
-        atten_norm = tf.nn.softmax(tf.reduce_max(tf.reshape(atten, (-1, 64, self.num_atten)), axis=-1), axis=-1)  # shape (batch_size, 64)
+        atten_norm = tf.nn.softmax(tf.reduce_max(tf.reshape(atten, (-1, MAX_PAD_LEN, self.num_atten)), axis=-1), axis=-1)  # shape (batch_size, MAX_PAD_LEN)
         self.atten_norm = atten_norm
 
-        L1 = tf.expand_dims(atten_norm, axis=-1) * self.inputs  # shape (batch_size, 64, 300)
+        L1 = tf.expand_dims(atten_norm, axis=-1) * self.inputs  # shape (batch_size, MAX_PAD_LEN, 300)
         L1 = tf.reduce_sum(L1, axis=1)  # shape (batch_size, 300)
 
         self.L1 = L1
@@ -89,8 +92,8 @@ class AttenAverage(object):
 
 
 def make_data(X, y, embedding, vec_dim, binary, pad_id, shuffle=True):
-    X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=64, padding='post', value=pad_id)
-    X = embedding[X]  # shape (nsamples, 64, vec_dim)
+    X = tf.keras.preprocessing.sequence.pad_sequences(X, maxlen=MAX_PAD_LEN, padding='post', value=pad_id)
+    X = embedding[X]  # shape (nsamples, MAX_PAD_LEN, vec_dim)
     if shuffle:
         perm = np.random.permutation(X.shape[0])
         X, y = X[perm], y[perm]
@@ -127,7 +130,8 @@ def main(args):
         test_x, test_y = make_data(*src_ds.test, src_wv.embedding, vec_dim, args.binary, src_pad_id, shuffle=False)
 
         xsenti = model.get_senti_x(train_x)
-        ysenti = train_y
+        if args.binary:
+            ysenti = train_y * 2
         with open('pickle/senti.bin', 'wb') as fout:
             pickle.dump((xsenti, ysenti), fout)
 
