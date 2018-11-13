@@ -11,7 +11,7 @@ TARGET = 'checkpoints/en-%s-identity'
 def main():
     if not os.path.exists('pickle'):
         os.mkdir('pickle')
-    for lang in ('eu', 'es', 'ca'):
+    for lang in ('eu', 'es', 'ca', 'fr', 'de', 'ja'):
         dic = {
             'W_source': np.identity(300, dtype=np.float32),
             'W_target': np.identity(300, dtype=np.float32),
