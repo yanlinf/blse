@@ -236,8 +236,7 @@ class BilingualDict(object):
 
     def __init__(self, infile):
         with open(infile, 'r', encoding='utf-8') as fin:
-            csvin = csv.reader(fin, delimiter='\t')
-            self.dictionary = [row for row in csvin if len(row) == 2]
+            self.dictionary = [row.split() for row in fin if len(row.split()) == 2]
             self._lookup = dict(self.dictionary)
 
     def __getitem__(self, word):
