@@ -39,7 +39,7 @@ def ubise(P, N, a, W, p):
     xpw = pw[pi]
     xnw = nw[ni]
     J = -xpw.dot(a).mean() + xnw.dot(a).mean()
-    dW = -xpw.T.dot(xp.tile(a, (k1, 1))) / k1 + xnw.T.dot(xp.tile(a, (k2, 1))) / k2
+    dW = -P[pi].T.dot(xp.tile(a, (k1, 1))) / k1 + N[ni].T.dot(xp.tile(a, (k2, 1))) / k2
     da = W.T.dot(-xpw.mean(axis=0) + xnw.mean(axis=0))
     return J, dW, da
 
@@ -59,9 +59,9 @@ def proj_spectral(W, threshold):
     return xp.dot(u, xp.dot(xp.diag(s), vt))
 
 
-def proj_l2(x):
+def proj_l2(x, threshold=1):
     xp = get_array_module(x)
-    return x / max(xp.linalg.norm(x) / 100, 1)
+    return x / max(xp.linalg.norm(x) / threshold, 1)
 
 
 def inspect_matrix(X):
@@ -91,6 +91,14 @@ def main(args):
     src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=False).pad(pad_id)
     xsenti = xp.array(src_wv.embedding[src_ds.train[0]].sum(axis=1) / src_ds.train[2][:, np.newaxis], dtype=xp.float32)
     ysenti = xp.array(src_ds.train[1], dtype=xp.int32)
+
+    ###################### TEST ######################
+    # with open('pickle/senti.bin', 'rb') as fin:    #
+    #     xsenti, ysenti = pickle.load(fin)          #
+    ##################################################
+
+    xsenti = xp.array(xsenti, dtype=xp.float32)
+    ysenti = xp.array(ysenti, dtype=xp.int32)
     P, SP = xsenti[ysenti == 0], xsenti[ysenti == 1]
     N, SN = xsenti[ysenti == 2], xsenti[ysenti == 3]
     SPN = xp.concatenate((P, N, SN), axis=0)
@@ -133,12 +141,12 @@ def main(args):
         X_src = bdi_obj.src_proj_emb[init_dict[:, 0]]
         X_trg = bdi_obj.trg_emb[init_dict[:, 1]]
         prev_loss, loss = float('inf'), float('inf')
-        while lr > 0.00006:
+        while lr > 1e-4:
             prev_W = W_trg.copy()
             prev_loss = loss
             grad = -2 * X_trg.T.dot(X_src)
             W_trg -= lr * grad
-            W_trg = proj_spectral(W_trg, threshold=threshold)
+            W_trg = proj_spectral(W_trg, threshold=1)
             loss = -2 * (X_trg.dot(W_trg) * X_src).sum()
             if loss > prev_loss:
                 lr /= 2
@@ -153,29 +161,12 @@ def main(args):
     bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
 
     # initialize model parameters
-    print('Intializing a/c/e......')
-    a = xp.random.randn(args.vector_dim).astype(xp.float32) * 10
-    c = xp.random.randn(args.vector_dim).astype(xp.float32) * 10
-    e = xp.random.randn(args.vector_dim).astype(xp.float32) * 10
-    if args.model == 'ovo':
-        J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
-    elif args.model == 'ovr':
-        J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
-    print('\rJ: {0:.10f}'.format(float(J)), end='')
-    while lr > 1e-5:
-        Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
-        dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
-        a, c, e = (a - lr * da), (c - lr * dc), (e - lr * de)
-        if args.model == 'ovo':
-            J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
-        elif args.model == 'ovr':
-            J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
-        print('\rJ: {0:.10f}'.format(float(J)), end='')
-        if J > Jold:
-            lr /= 2
-            J, W, a, c, e = Jold, Wold, aold, cold, eold
-            dW, da, dc, de = dWold, daold, dcold, deold
-    print()
+    a = xp.random.randn(args.vector_dim).astype(xp.float32)
+    c = xp.random.randn(args.vector_dim).astype(xp.float32)
+    e = xp.random.randn(args.vector_dim).astype(xp.float32)
+    a /= xp.linalg.norm(a)
+    c /= xp.linalg.norm(c)
+    e /= xp.linalg.norm(e)
 
     # print alignment error
     if not args.no_proj_error:
@@ -185,6 +176,7 @@ def main(args):
     # self learning
     try:
         for epoch in range(args.epochs):
+            print()
             print('running epoch %d...' % epoch)
             print('threshold: %.4f' % threshold)
 
@@ -197,17 +189,18 @@ def main(args):
                 if args.model == '0':
                     continue
 
+                # update a, c, e
                 if args.model == 'ovo':
                     J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
                 elif args.model == 'ovr':
                     J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
                 print('\rJ: {0:.10f}'.format(float(J)), end='')
+                lr = args.learning_rate
                 cnt = 0
-                while lr > 1e-40:
+                while lr > 1e-4:
                     Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
                     dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
-                    W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
-                    a, c, e = (a - lr * da), (c - lr * dc), (e - lr * de)
+                    a, c, e = proj_l2(a - lr * da), proj_l2(c - lr * dc), proj_l2(e - lr * de)
                     if args.model == 'ovo':
                         J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
                     elif args.model == 'ovr':
@@ -215,12 +208,35 @@ def main(args):
                     print('\rJ: {0:.10f}'.format(float(J)), end='')
                     if J > Jold:
                         lr /= 2
-                        J, W, a, c, e = Jold, Wold, aold, cold, eold
+                        J, W_src, a, c, e = Jold, Wold, aold, cold, eold
                         dW, da, dc, de = dWold, daold, dcold, deold
-                    else:
-                        cnt += 1
-                        if cnt == args.k:
-                            break
+                    elif Jold - J < 0.0000001:
+                        break
+                print()
+
+                # update W_src
+                if args.model == 'ovo':
+                    J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+                elif args.model == 'ovr':
+                    J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
+                print('\rJ: {0:.10f}'.format(float(J)), end='')
+                lr = args.learning_rate
+                cnt = 0
+                while lr > 1e-10:
+                    Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
+                    dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
+                    W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
+                    if args.model == 'ovo':
+                        J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+                    elif args.model == 'ovr':
+                        J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
+                    print('\rJ: {0:.10f}'.format(float(J)), end='')
+                    if J > Jold:
+                        lr /= 2
+                        J, W_src, a, c, e = Jold, Wold, aold, cold, eold
+                        dW, da, dc, de = dWold, daold, dcold, deold
+                    elif Jold - J < 0.0000001:
+                        break
                 print()
                 inspect_matrix(W_src)
                 bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
@@ -362,6 +378,9 @@ if __name__ == '__main__':
     lang_group.add_argument('--en_es', action='store_true', help='train english-spanish embedding')
     lang_group.add_argument('--en_ca', action='store_true', help='train english-catalan embedding')
     lang_group.add_argument('--en_eu', action='store_true', help='train english-basque embedding')
+    lang_group.add_argument('--en_fr', action='store_true', help='train english-french embedding')
+    lang_group.add_argument('--en_de', action='store_true', help='train english-german embedding')
+    lang_group.add_argument('--en_ja', action='store_true', help='train english-japanese embedding')
 
     args = parser.parse_args()
     parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=False, normalize=['center', 'unit'],
@@ -391,6 +410,30 @@ if __name__ == '__main__':
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
                             gold_dictionary='lexicons/apertium/en-eu.txt')
+
+    elif args.en_fr:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/fr.bin' if args.pickle else 'emb/wiki.fr.vec'
+        parser.set_defaults(source_lang='en', target_lang='fr',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            source_dataset='datasets/cls10/en/books/',
+                            gold_dictionary='lexicons/muse/en-fr.0-5000.txt')
+
+    elif args.en_de:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/de.bin' if args.pickle else 'emb/wiki.de.vec'
+        parser.set_defaults(source_lang='en', target_lang='de',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            source_dataset='datasets/cls10/en/books/',
+                            gold_dictionary='lexicons/muse/en-de.0-5000.txt')
+
+    elif args.en_ja:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/ja.bin' if args.pickle else 'emb/wiki.ja.vec'
+        parser.set_defaults(source_lang='en', target_lang='ja',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            source_dataset='datasets/cls10/en/books/',
+                            gold_dictionary='lexicons/muse/en-ja.0-5000.txt')
 
     args = parser.parse_args()
 
