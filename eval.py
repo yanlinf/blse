@@ -62,8 +62,16 @@ def main(args):
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
 
         for is_binary in (True, False):
-            src_ds = SentimentDataset('datasets/%s/opener_sents/' % src_lang).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
-            trg_ds = SentimentDataset('datasets/%s/opener_sents/' % trg_lang).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
+            if trg_lang in ('es', 'ca', 'eu'):
+                src_ds = SentimentDataset('datasets/%s/opener_sents/' % src_lang).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
+                trg_ds = SentimentDataset('datasets/%s/opener_sents/' % trg_lang).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
+            else:
+                if not is_binary:
+                    continue  # only binary setting for fr/de/ja
+
+                dom = dic.get('domain', 'books')
+                src_ds = SentimentDataset('datasets/cls10/%s/%s/' % (src_lang, dom)).to_index(src_wv, binary=is_binary).to_vecs(src_proj_emb, shuffle=True)
+                trg_ds = SentimentDataset('datasets/cls10/%s/%s/' % ('jp' if trg_lang =='ja' else trg_lang, dom)).to_index(trg_wv, binary=is_binary).to_vecs(trg_proj_emb, shuffle=True)
             train_dev_x = np.concatenate((src_ds.train[0], trg_ds.train[0], trg_ds.dev[0]), axis=0)
             train_dev_y = np.concatenate((src_ds.train[1], trg_ds.train[1], trg_ds.dev[1]), axis=0)
             train_test_x = np.concatenate((src_ds.train[0], trg_ds.test[0]), axis=0)
