@@ -119,6 +119,9 @@ if __name__ == '__main__':
     lang_group.add_argument('--en_es', action='store_true', help='train english-spanish embedding')
     lang_group.add_argument('--en_ca', action='store_true', help='train english-catalan embedding')
     lang_group.add_argument('--en_eu', action='store_true', help='train english-basque embedding')
+    lang_group.add_argument('--en_fr', action='store_true', help='train english-french embedding')
+    lang_group.add_argument('--en_de', action='store_true', help='train english-german embedding')
+    lang_group.add_argument('--en_ja', action='store_true', help='train english-japanese embedding')
 
     args = parser.parse_args()
     if args.en_es:
@@ -139,6 +142,30 @@ if __name__ == '__main__':
         parser.set_defaults(source_lang='en', target_lang='eu',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             gold_dictionary='lexicons/apertium/en-eu.txt')
+
+    elif args.en_fr:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/fr.bin' if args.pickle else 'emb/wiki.fr.vec'
+        parser.set_defaults(source_lang='en', target_lang='fr',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            source_dataset='datasets/cls10/en/books/',
+                            gold_dictionary='lexicons/muse/en-fr.0-5000.txt')
+
+    elif args.en_de:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/de.bin' if args.pickle else 'emb/wiki.de.vec'
+        parser.set_defaults(source_lang='en', target_lang='de',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            source_dataset='datasets/cls10/en/books/',
+                            gold_dictionary='lexicons/muse/en-de.0-5000.txt')
+
+    elif args.en_ja:
+        src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
+        trg_emb_file = 'pickle/ja.bin' if args.pickle else 'emb/wiki.ja.vec'
+        parser.set_defaults(source_lang='en', target_lang='ja',
+                            source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
+                            source_dataset='datasets/cls10/en/books/',
+                            gold_dictionary='lexicons/muse/en-ja.0-5000.txt')
 
     args = parser.parse_args()
     main(args)
