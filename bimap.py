@@ -158,7 +158,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     if args.unsupervised:
-        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=True, normalize=[
+        parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=False, normalize=[
                             'center', 'unit'], vocab_cutoff=10000, orthogonal=True, log='./log/unsupervised.csv',
                             dropout_init=0.2, dropout_interval=40, batch_size=3000, val_batch_size=500)
     elif args.unconstrained:
