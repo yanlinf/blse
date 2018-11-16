@@ -82,13 +82,8 @@ def main(args):
             test_y = trg_ds.test[1]
 
             if args.C is not None:
-                if args.multi_class == 'ovr':
-                    clf = svm.LinearSVC(C=args.C)
-                else:
-                    clf = svm.SVC(C=args.C, kernel='linear')
-                clf.fit(train_x, train_y)
                 best_C = args.C
-                pred = clf.predict(test_x)
+                pred = svc.set_params(C=args.C).fit(train_x, train_y).predict(test_x)
             else:
                 cv_fold = np.zeros(train_dev_x.shape[0], dtype=np.int32)
                 cv_fold[:train_x.shape[0]] = -1
@@ -97,10 +92,7 @@ def main(args):
                 clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count(), cv=cv_split)
                 clf.fit(train_dev_x, train_dev_y)
                 best_C = clf.best_params_['C']
-                if args.multi_class == 'ovr':
-                    pred = svm.LinearSVC(C=best_C).fit(train_x, train_y).predict(test_x)
-                else:
-                    pred = svm.SVC(C=best_C, kernel='linear').fit(train_x, train_y).predict(test_x)
+                pred = svc.set_params(C=best_C).fit(train_x, train_y).predict(test_x)
             test_score = f1_score(test_y, pred, average='macro')
             best_clf = GridSearchCV(svc, param_grid, scoring='f1_macro', n_jobs=cpu_count(),
                                     cv=PredefinedSplit([-1] * train_x.shape[0] + [0] * test_x.shape[0])).fit(train_test_x, train_test_y)
