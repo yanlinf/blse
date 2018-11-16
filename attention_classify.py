@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import argparse
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, confusion_matrix
 import pickle
 from utils.dataset import *
 from utils.math import *
@@ -110,7 +110,7 @@ def print_examples_with_attention(X, y, pred, wordvecs, attention):
 
 
 def main(args):
-    logging.info(str(args))
+    print(str(args))
     with open(args.source_embedding, 'rb') as fin:
         src_wv = pickle.load(fin)
     vec_dim = src_wv.embedding.shape[1]
@@ -122,7 +122,10 @@ def main(args):
         model = AttenAverage(sess, vec_dim, (2 if args.binary else 4),
                              args.learning_rate, args.batch_size, args.epochs, pad=args.pad)
         model.fit(train_x, train_y, test_x, test_y)
-        logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
+        print('test f1_macro: %.4f' % model.score(test_x, test_y))
+
+        pred = model.predict(test_x)
+        print('confusion matrix:', confusion_matrix(test_y, pred))
 
         train_x, train_y = make_data(*src_ds.train, src_wv.embedding, vec_dim, args.binary, src_pad_id, shuffle=False)
         test_x, test_y = make_data(*src_ds.test, src_wv.embedding, vec_dim, args.binary, src_pad_id, shuffle=False)
@@ -162,7 +165,7 @@ if __name__ == '__main__':
                         help='sentiment dataset of the source language',
                         default='./datasets/en/opener_sents/')
     parser.add_argument('--save_path',
-                        default='pickle/senti.bin',
+                        default='pickle/senti_test.bin',
                         help='save path')
     parser.add_argument('--pad',
                         type=int,
