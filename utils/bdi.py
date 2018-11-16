@@ -148,12 +148,14 @@ class BDI(object):
             self.fwd_ind = xp.arange(self.fwd_src_size, dtype=xp.int32)
             self.fwd_trg = xp.empty(self.fwd_src_size, dtype=xp.int32)
             self.fwd_sim = xp.empty((batch_size, self.fwd_trg_size), dtype=xp.float32)
+            self.best_fwd_sim = xp.empty(self.fwd_src_size)
         if direction in ('backward', 'union') or csls > 0:
             self.bwd_trg_size = cutoff_size
             self.bwd_src_size = cutoff_size if cutoff_type == 'both' else src_size
             self.bwd_ind = xp.arange(self.bwd_trg_size, dtype=xp.int32)
             self.bwd_src = xp.arange(self.bwd_trg_size, dtype=xp.int32)
             self.bwd_sim = xp.empty((batch_size, self.bwd_src_size), dtype=xp.float32)
+            self.best_bwd_sim = xp.empty(self.bwd_trg_size)
         self.sim_val = xp.empty((batch_size_val, self.trg_size), dtype=xp.float32)
         self.dict_size = cutoff_size * 2 if direction == 'union' else cutoff_size
         self.dict = xp.empty((self.dict_size, 2), dtype=xp.int32)
@@ -233,6 +235,9 @@ class BDI(object):
             for i in range(0, self.fwd_src_size, self.batch_size):
                 j = min(self.fwd_src_size, i + self.batch_size)
                 xp.dot(self.src_proj_emb[i:j], self.trg_proj_emb[:self.fwd_trg_size].T, out=self.fwd_sim[:j - i])
+
+                self.fwd_sim[:j - i].max(axis=1, out=self.best_fwd_sim[i:j])
+
                 self.fwd_sim[:j - i] -= self.fwd_knn_sim / 2
                 if self.scorer == 'cos':
                     self.fwd_sim[:j - i] /= xp.sqrt(self.trg_sqr_norm[:self.fwd_trg_size])
@@ -254,6 +259,9 @@ class BDI(object):
             for i in range(0, self.bwd_trg_size, self.batch_size):
                 j = min(self.bwd_trg_size, i + self.batch_size)
                 xp.dot(self.trg_proj_emb[i:j], self.src_proj_emb[:self.bwd_src_size].T, out=self.bwd_sim[:j - i])
+
+                self.bwd_sim[:j - i].max(axis=1, out=self.best_bwd_sim[i:j])
+
                 self.bwd_sim[:j - i] -= self.bwd_knn_sim / 2
                 if self.scorer == 'cos':
                     self.bwd_sim[:j - i] /= xp.sqrt(self.src_sqr_norm[:self.bwd_src_size])
@@ -262,11 +270,14 @@ class BDI(object):
                 dropout(self.bwd_sim[:j - i], keep_prob, inplace=True).argmax(axis=1, out=self.bwd_src[i:j])
         if self.direction == 'forward':
             xp.stack([self.fwd_ind, self.fwd_trg], axis=1, out=self.dict)
+            self.objective = self.best_fwd_sim.mean()
         elif self.direction == 'backward':
             xp.stack([self.bwd_src, self.bwd_ind], axis=1, out=self.dict)
+            self.objective = self.best_bwd_sim.mean()
         elif self.direction == 'union':
             self.dict[:, 0] = xp.concatenate((self.fwd_ind, self.bwd_src))
             self.dict[:, 1] = xp.concatenate((self.fwd_trg, self.bwd_ind))
+            self.objective = (self.best_fwd_sim.mean() + self.best_bwd_sim.mean()) / 2
         return self.dict.copy()
 
     def get_target_indices(self, src_ind):
