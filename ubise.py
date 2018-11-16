@@ -93,14 +93,22 @@ def main(args):
     ysenti = xp.array(src_ds.train[1], dtype=xp.int32)
 
     ###################### TEST ######################
-    # with open('pickle/senti.bin', 'rb') as fin:    #
-    #     xsenti, ysenti = pickle.load(fin)          #
+    if args.target_lang in ('es', 'ca', 'eu'):
+        with open('pickle/senti_opener.bin', 'rb') as fin:
+            xsenti, ysenti = pickle.load(fin)
+    else:
+        with open('pickle/senti.bin', 'rb') as fin:
+            xsenti, ysenti = pickle.load(fin)
     ##################################################
 
     xsenti = xp.array(xsenti, dtype=xp.float32)
     ysenti = xp.array(ysenti, dtype=xp.int32)
     P, SP = xsenti[ysenti == 0], xsenti[ysenti == 1]
     N, SN = xsenti[ysenti == 2], xsenti[ysenti == 3]
+    if SP.shape[0] == 0:
+        SP = P.copy()
+    if SN.shape[0] == 0:
+        SN = N.copy()
     SPN = xp.concatenate((P, N, SN), axis=0)
     SNN = xp.concatenate((P, SP, N), axis=0)
 
@@ -248,7 +256,11 @@ def main(args):
                     lr = args.learning_rate
                     X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
                     X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
-                    prev_loss, loss = float('inf'), float('inf')
+
+                    W_trg = xp.linalg.pinv(X_trg).dot(X_src)  # procruste initialization
+                    W_trg = proj_spectral(W_trg, threshold=threshold)
+
+                    loss = xp.linalg.norm(X_trg.dot(W_trg) - X_src)**2
                     while lr > 0.000000005:
                         prev_W = W_trg.copy()
                         prev_loss = loss
@@ -256,6 +268,32 @@ def main(args):
                         W_trg -= lr * grad
                         W_trg = proj_spectral(W_trg, threshold=threshold)
                         loss = xp.linalg.norm(X_trg.dot(W_trg) - X_src)**2
+                        if loss > prev_loss:
+                            lr /= 2
+                            W_trg = prev_W
+                            loss = prev_loss
+                        elif prev_loss - loss < 1e-2:
+                            break
+                        print('\rloss: {0:.4f}'.format(float(loss)), end='')
+                    print()
+
+                if args.target_loss == 'orthogonal':
+                    # procruste
+                    lr = args.learning_rate
+                    X_src = bdi_obj.src_proj_emb[curr_dict[:, 0]]
+                    X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
+
+                    u, s, vt = xp.linalg.svd(X_trg.T.dot(X_src))  # procruste initialization
+                    W_trg = u.dot(vt)
+
+                    loss = -(X_trg.dot(W_trg) * X_src).sum()
+                    while lr > 0.000000005:
+                        prev_W = W_trg.copy()
+                        prev_loss = loss
+                        grad = 2 * X_trg.T.dot(X_src)
+                        W_trg -= lr * grad
+                        W_trg = proj_spectral(W_trg, threshold=threshold)
+                        loss = -(X_trg.dot(W_trg) * X_src).sum()
                         if loss > prev_loss:
                             lr /= 2
                             W_trg = prev_W
@@ -315,7 +353,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--target_loss', choices=['procruste', 'whitten'], default='procruste', help='target loss function')
+    parser.add_argument('--target_loss', choices=['procruste', 'whitten', 'orthogonal'], default='procruste', help='target loss function')
     parser.add_argument('--sample', choices=['uniform', 'smooth'], default='uniform', help='sampling method')
     parser.add_argument('--smooth', type=int, default=0.5, help='smoothing power')
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
