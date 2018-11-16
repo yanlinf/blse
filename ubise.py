@@ -106,8 +106,10 @@ def main(args):
     P, SP = xsenti[ysenti == 0], xsenti[ysenti == 1]
     N, SN = xsenti[ysenti == 2], xsenti[ysenti == 3]
     if SP.shape[0] == 0:
+        print('Warning: SP of size 0')
         SP = P.copy()
     if SN.shape[0] == 0:
+        print('Warning: SN of size 0')
         SN = N.copy()
     SPN = xp.concatenate((P, N, SN), axis=0)
     SNN = xp.concatenate((P, SP, N), axis=0)
@@ -258,7 +260,7 @@ def main(args):
                     X_trg = bdi_obj.trg_emb[curr_dict[:, 1]]
 
                     W_trg = xp.linalg.pinv(X_trg).dot(X_src)  # procruste initialization
-                    W_trg = proj_spectral(W_trg, threshold=threshold)
+                    W_trg = proj_spectral(W_trg, threshold=1)
 
                     loss = xp.linalg.norm(X_trg.dot(W_trg) - X_src)**2
                     while lr > 0.000000005:
@@ -298,7 +300,7 @@ def main(args):
                             lr /= 2
                             W_trg = prev_W
                             loss = prev_loss
-                        elif prev_loss - loss < 1:
+                        elif prev_loss - loss < 1e-2:
                             break
                         print('\rloss: {0:.4f}'.format(float(loss)), end='')
                     print()
@@ -433,21 +435,21 @@ if __name__ == '__main__':
         parser.set_defaults(source_lang='en', target_lang='es',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
-                            gold_dictionary='lexicons/apertium/en-es.txt')
+                            gold_dictionary='lexicons/muse/en-es.0-5000.txt')
     elif args.en_ca:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
         parser.set_defaults(source_lang='en', target_lang='ca',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
-                            gold_dictionary='lexicons/apertium/en-ca.txt')
+                            gold_dictionary='lexicons/muse/en-ca.0-5000.txt')
     elif args.en_eu:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
         parser.set_defaults(source_lang='en', target_lang='eu',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
-                            gold_dictionary='lexicons/apertium/en-eu.txt')
+                            gold_dictionary='lexicons/muse/en-eu.0-5000.txt')
 
     elif args.en_fr:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
