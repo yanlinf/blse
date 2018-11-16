@@ -314,21 +314,21 @@ if __name__ == '__main__':
         parser.set_defaults(source_lang='en', target_lang='es',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
-                            dictionary='lexicons/bingliu/en-es.txt')
+                            dictionary='lexicons/muse/en-es.0-5000.txt')
     elif args.en_ca:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
         parser.set_defaults(source_lang='en', target_lang='ca',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
-                            dictionary='lexicons/bingliu/en-ca.txt')
+                            dictionary='lexicons/muse/en-ca.0-5000.txt')
     elif args.en_eu:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
         parser.set_defaults(source_lang='en', target_lang='eu',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
-                            dictionary='lexicons/bingliu/en-eu.txt')
+                            dictionary='lexicons/muse/en-eu.0-5000.txt')
     args = parser.parse_args()
 
     logging.basicConfig(level=args.loglevel,
