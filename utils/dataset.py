@@ -348,7 +348,7 @@ class SentimentDataset(object):
             X_new = np.full((len(X), maxlen), value, dtype=np.int32)
             lengths = np.ones(len(X), dtype=np.int32)
             for i, line in enumerate(X):
-                lengths[i] = min(len(line), maxlen)
+                lengths[i] = max(min(len(line), maxlen), 1)
                 X_new[i][:min(len(line), maxlen)] = line[:maxlen]
             return X_new, y, lengths
 
