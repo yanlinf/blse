@@ -411,7 +411,8 @@ def main(args):
                 accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
                 print('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
     finally:
-        W_src, W_trg = best_W_src, best_W_trg
+        # W_src, W_trg = best_W_src, best_W_trg
+
         # save W_src and W_trg
         if args.spectral:
             W_src = proj_spectral(W_src, threshold=args.threshold)
