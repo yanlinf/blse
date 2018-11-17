@@ -375,10 +375,10 @@ def main(args):
                 clf.fit(xs, ys)
                 dev_f1 = clf.best_score_
                 print('dev_f1: {:.4f}'.format(dev_f1))
-                # if dev_f1 > best_dev_f1:
-                #     best_W_src = W_src.copy()
-                #     best_W_trg = W_trg.copy()
-                #     best_dev_f1 = dev_f1
+                if dev_f1 > best_dev_f1:
+                    best_W_src = W_src.copy()
+                    best_W_trg = W_trg.copy()
+                    best_dev_f1 = dev_f1
 
             # valiadation
             if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
