@@ -5,6 +5,12 @@ import sys
 import os
 import re
 import numpy as np
+from sklearn.model_selection import GridSearchCV, PredefinedSplit
+from sklearn.exceptions import UndefinedMetricWarning, ConvergenceWarning
+from sklearn.utils.testing import ignore_warnings
+from sklearn.metrics import f1_score
+from sklearn import svm
+from multiprocessing import cpu_count
 from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
@@ -40,7 +46,7 @@ def ubise(P, N, a, W, p):
     xnw = nw[ni]
     J = -xpw.dot(a).mean() + xnw.dot(a).mean()
     dW = -P[pi].T.dot(xp.tile(a, (k1, 1))) / k1 + N[ni].T.dot(xp.tile(a, (k2, 1))) / k2
-    da = W.T.dot(-xpw.mean(axis=0) + xnw.mean(axis=0))
+    da = -xpw.mean(axis=0) + xnw.mean(axis=0)
     return J, dW, da
 
 
@@ -73,6 +79,8 @@ def inspect_matrix(X):
     print('top 6 singular values: {0}'.format(str(s[:6])))
 
 
+@ignore_warnings(category=ConvergenceWarning)
+@ignore_warnings(category=UndefinedMetricWarning)
 def main(args):
     print(str(args))
 
@@ -87,10 +95,35 @@ def main(args):
         trg_wv = WordVecs(args.target_embedding, emb_format=args.format).normalize(args.normalize)
 
     # sentiment array
-    pad_id = src_wv.add_word('<pad>', np.zeros(args.vector_dim, dtype=np.float32))
-    src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=False).pad(pad_id)
-    xsenti = xp.array(src_wv.embedding[src_ds.train[0]].sum(axis=1) / src_ds.train[2][:, np.newaxis], dtype=xp.float32)
-    ysenti = xp.array(src_ds.train[1], dtype=xp.int32)
+    src_pad_id = src_wv.add_word('<pad>', np.zeros(args.vector_dim, dtype=np.float32))
+    src_ds = SentimentDataset(args.source_dataset).to_index(src_wv, binary=args.binary).pad(src_pad_id)
+    trg_pad_id = trg_wv.add_word('<pad>', np.zeros(args.vector_dim, dtype=np.float32))
+    trg_ds = SentimentDataset(args.target_dataset).to_index(trg_wv, binary=args.binary).pad(trg_pad_id)
+    train_x, train_y, train_l = src_ds.train[0], src_ds.train[1], src_ds.train[2]
+    dev_x = np.concatenate((trg_ds.train[0], trg_ds.dev[0]), axis=0)
+    dev_y = np.concatenate((trg_ds.train[1], trg_ds.dev[1]), axis=0)
+    dev_l = np.concatenate((trg_ds.train[2], trg_ds.dev[2]), axis=0)
+
+    train_x = xp.array(train_x, dtype=xp.int32)
+    train_y = xp.array(train_y, dtype=xp.int32)
+    train_l = xp.array(train_l, dtype=xp.int32)
+    dev_x = xp.array(dev_x, dtype=xp.int32)
+    dev_y = xp.array(dev_y, dtype=xp.int32)
+    dev_l = xp.array(dev_l, dtype=xp.int32)
+
+    ys = np.concatenate((src_ds.train[1], trg_ds.train[1], trg_ds.dev[1]), axis=0)
+
+    cv_split = np.zeros(train_x.shape[0] + dev_x.shape[0], dtype=np.int32)
+    cv_split[:train_x.shape[0]] = -1
+    cv_split = PredefinedSplit(cv_split)
+    param_grid = {
+        'C': [0.1, 0.3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 30000],
+    }
+    clf = GridSearchCV(svm.LinearSVC(), param_grid, scoring='f1_macro', n_jobs=cpu_count(), cv=cv_split)
+
+    best_dev_f1 = 0
+    # xsenti = xp.array(src_wv.embedding[src_ds.train[0]].sum(axis=1) / src_ds.train[2][:, np.newaxis], dtype=xp.float32)
+    # ysenti = xp.array(src_ds.train[1], dtype=xp.int32)
 
     ###################### TEST ######################
     if args.target_lang in ('es', 'ca', 'eu'):
@@ -128,10 +161,11 @@ def main(args):
     threshold = min(args.threshold, args.threshold_init)
     lr = args.learning_rate
 
+    src_val_ind = np.union1d(asnumpy(gold_dict[:, 0]), train_x)
     # construct BDI object
     bdi_obj = BDI(src_wv.embedding, trg_wv.embedding, batch_size=args.batch_size, cutoff_size=args.vocab_cutoff, cutoff_type='both',
                   direction=args.direction, csls=args.csls, batch_size_val=args.val_batch_size, scorer=args.scorer,
-                  src_val_ind=gold_dict[:, 0], trg_val_ind=gold_dict[:, 1])
+                  src_val_ind=src_val_ind, trg_val_ind=gold_dict[:, 1])
 
     # print alignment error
     if not args.no_proj_error:
@@ -323,7 +357,7 @@ def main(args):
                     W_trg = proj_spectral(W_trg, threshold=threshold)
 
                 inspect_matrix(W_trg)
-                bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection)
+                bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
 
             if not args.no_proj_error:
                 proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
@@ -335,6 +369,17 @@ def main(args):
             # update threshold
             threshold = min(args.threshold_step + threshold, args.threshold)
 
+            xs = np.concatenate((asnumpy(bdi_obj.src_proj_emb[train_x].sum(axis=1) / train_l[:, xp.newaxis]),
+                                 asnumpy(bdi_obj.trg_proj_emb[dev_x].sum(axis=1) / dev_l[:, xp.newaxis])), axis=0)
+            if epoch % 2 == 1:
+                clf.fit(xs, ys)
+                dev_f1 = clf.best_score_
+                print('dev_f1: {:.4f}'.format(dev_f1))
+                # if dev_f1 > best_dev_f1:
+                #     best_W_src = W_src.copy()
+                #     best_W_trg = W_trg.copy()
+                #     best_dev_f1 = dev_f1
+
             # valiadation
             if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
                 bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
@@ -342,6 +387,7 @@ def main(args):
                 accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
                 print('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
     finally:
+        W_src, W_trg = best_W_src, best_W_trg
         # save W_src and W_trg
         if args.spectral:
             W_src = proj_spectral(W_src, threshold=args.threshold)
@@ -364,6 +410,7 @@ if __name__ == '__main__':
     parser.add_argument('-a', '--alpha', type=float, default=0.5, help='trade-off between sentiment and alignment')
     parser.add_argument('--model', choices=['ovo', 'ovr', '0'], default='ovr', help='source objective function')
     parser.add_argument('--scorer', choices=['dot', 'euclidean'], default='dot', help='retrieval method')
+    parser.add_argument('-bi', '--binary', action='store_true', help='use binary setting for valiadation')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
@@ -425,7 +472,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=False, normalize=['center', 'unit'],
                         vocab_cutoff=10000, alpha=1., spectral=True,
-                        learning_rate=0.1, save_path='checkpoints/ubise.bin',
+                        learning_rate=10000, save_path='checkpoints/ubise.bin',
                         dropout_init=0.1, dropout_step=0.002, epochs=500, normalize_projection=False,
                         threshold=1.0, batch_size=5000, val_batch_size=300)
 
