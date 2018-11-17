@@ -2,12 +2,14 @@ import tensorflow as tf
 import numpy as np
 import argparse
 from sklearn.metrics import f1_score, confusion_matrix
+from sklearn.utils.class_weight import compute_class_weight
 from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
 from utils.model import *
 import logging
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 MAX_LEN = 64
 
@@ -17,7 +19,15 @@ class SentiCNN(object):
     CNN for sentiment classification.
     """
 
-    def __init__(self, sess, vec_dim, nclasses, learning_rate, batch_size, num_epoch, num_filters, dropout):
+    def __init__(self, sess,
+                 vec_dim=300,
+                 nclasses=2,
+                 learning_rate=0.001,
+                 batch_size=50,
+                 num_epoch=200,
+                 num_filters=64,
+                 dropout=0.5,
+                 C=0.01):
         self.sess = sess
         self.vec_dim = vec_dim
         self.nclasses = nclasses
@@ -26,45 +36,71 @@ class SentiCNN(object):
         self.num_epoch = num_epoch
         self.num_filters = num_filters
         self.dropout = dropout
+        self.C = C
         self._build_graph()
-        self.sess.run(tf.global_variables_initializer())
+        self.initialize()
         self.saver = tf.train.Saver()
 
     def _build_graph(self):
         self.keep_prob = tf.placeholder(tf.float32)
-        self.inputs = tf.placeholder(tf.float32, shape=(None, None, 1))
+        self.inputs = tf.placeholder(tf.float32, shape=(None, MAX_LEN * self.vec_dim, 1))
+        self.batch_weights = tf.placeholder(tf.float32, shape=(None,))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
 
         W1 = tf.get_variable('W1', (self.vec_dim, 1, self.num_filters), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
-        conv1 = tf.nn.conv1d(self.inputs, W1, self.vec_dim, 'VALID')  # shape (batch_size, length, nchannels)
+        W2 = tf.get_variable('W2', (2 * self.vec_dim, 1, self.num_filters), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+        W3 = tf.get_variable('W3', (3 * self.vec_dim, 1, self.num_filters), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+        b1 = tf.get_variable('b1', (self.num_filters), tf.float32, initializer=tf.zeros_initializer())
+        b2 = tf.get_variable('b2', (self.num_filters), tf.float32, initializer=tf.zeros_initializer())
+        b3 = tf.get_variable('b3', (self.num_filters), tf.float32, initializer=tf.zeros_initializer())
+
+        conv1 = tf.nn.conv1d(self.inputs, W1, self.vec_dim, 'VALID') + b1  # shape (batch_size, length, nchannels)
+        conv2 = tf.nn.conv1d(self.inputs, W2, self.vec_dim, 'VALID') + b2  # shape (batch_size, length, nchannels)
+        conv3 = tf.nn.conv1d(self.inputs, W3, self.vec_dim, 'VALID') + b3  # shape (batch_size, length, nchannels)
+
         relu1 = tf.nn.relu(conv1)
-        pool1 = tf.reduce_max(relu1, axis=1)  # shape (batch_size, nchannels)
-        pool1 = tf.nn.dropout(pool1, keep_prob=self.keep_prob)
+        relu2 = tf.nn.relu(conv2)
+        relu3 = tf.nn.relu(conv3)
+
+        pool1 = tf.nn.dropout(tf.reduce_max(relu1, axis=1), keep_prob=self.keep_prob)  # shape (batch_size, nchannels)
+        pool2 = tf.nn.dropout(tf.reduce_max(relu2, axis=1), keep_prob=self.keep_prob)  # shape (batch_size, nchannels)
+        pool3 = tf.nn.dropout(tf.reduce_max(relu3, axis=1), keep_prob=self.keep_prob)  # shape (batch_size, nchannels)
+        pooled = tf.concat((pool1, pool2, pool3), axis=1)
         self.relu1 = relu1
 
-        W2 = tf.get_variable('W2', (self.num_filters, self.nclasses), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
-        b2 = tf.get_variable('b2', (self.nclasses,), tf.float32, initializer=tf.zeros_initializer())
-        logits = tf.matmul(pool1, W2) + b2
+        W4 = tf.get_variable('W4', (3 * self.num_filters, self.nclasses), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
+        b4 = tf.get_variable('b4', (self.nclasses,), tf.float32, initializer=tf.zeros_initializer())
+        logits = tf.matmul(pooled, W4) + b4
 
         self.W1 = W1
         self.W2 = W2
         self.b2 = b2
         self.pred = tf.argmax(logits, axis=1)
-        self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.labels, self.nclasses), logits)
+        self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.labels, self.nclasses), logits, weights=self.batch_weights) + \
+            (tf.nn.l2_loss(W1) + tf.nn.l2_loss(W2) + tf.nn.l2_loss(W3) + tf.nn.l2_loss(W4)) * self.C
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
-    def fit(self, train_x, train_y, dev_x=None, dev_y=None):
+    def initialize(self):
+        self.sess.run(tf.global_variables_initializer())
+
+    def fit(self, train_x, train_y, dev_x=None, dev_y=None, weights=None):
         max_f1 = 0
         self.best_W1_ = self.best_W2_ = self.best_b2_ = None
         nsample = len(train_x)
+        if weights is None:
+            weights = np.ones(train_x.shape[0])
         for epoch in range(self.num_epoch):
             loss = 0.
             pred = np.zeros(nsample)
             for index, offset in enumerate(range(0, nsample, self.batch_size)):
                 xs = train_x[offset:offset + self.batch_size]
                 ys = train_y[offset:offset + self.batch_size]
+                ws = weights[offset:offset + self.batch_size]
                 _, loss_, pred_, relu1_ = self.sess.run([self.optimizer, self.loss, self.pred, self.relu1],
-                                                        {self.inputs: xs, self.labels: ys, self.keep_prob: self.dropout})
+                                                        {self.inputs: xs,
+                                                         self.labels: ys,
+                                                         self.keep_prob: self.dropout,
+                                                         self.batch_weights: ws})
                 loss += loss_ * len(xs)
                 pred[offset:offset + self.batch_size] = pred_
             loss /= nsample
@@ -80,6 +116,7 @@ class SentiCNN(object):
             else:
                 print('epoch: {:d}  f1: {:.4f}  loss: {:.6f}\r'.format(epoch, fscore, loss), end='', flush=True)
         print()
+        self.best_score_ = max_f1
         if dev_x is None or dev_y is None:
             self.best_W1_, self.best_W2_, self.best_b2_ = self.sess.run([self.W1, self.W2, self.b2])
         else:
@@ -103,7 +140,7 @@ def main(args):
     print(str(args))
     if args.output is not None:
         with open(args.output, 'w', encoding='utf-8') as fout:
-            fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro,best_f1_macro,best_C\n')
+            fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro_1,f1_macro_2,f1_macro_3,f1_macro_average,dev_average\n')
 
     for infile in args.W:
         dic = load_model(infile)
@@ -147,18 +184,42 @@ def main(args):
             test_x = trg_ds.test[0].reshape((-1, MAX_LEN * vec_dim, 1))
             test_y = trg_ds.test[1]
 
+            class_weight = compute_class_weight('balanced', np.unique(train_y), train_y)
+            # print('class weights: {}'.format(class_weight))
+            weights = np.zeros(train_x.shape[0], dtype=np.float32)
+            for t, w in enumerate(class_weight):
+                weights[train_y == t] = w
+
             tf.reset_default_graph()
             with tf.Session() as sess:
-                model = SentiCNN(sess, vec_dim, (2 if is_binary else 4),
-                                 args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout)
-                model.fit(train_x, train_y, dev_x, dev_y)
-                pred = model.predict(test_x)
+                cnn = SentiCNN(sess, vec_dim, (2 if is_binary else 4),
+                               args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout, args.C)
+                test_scores = []
+                dev_scores = []
+                for i in range(3):
+                    cnn.initialize()
+                    cnn.fit(train_x, train_y, dev_x, dev_y, weights)
+                    pred = cnn.predict(test_x)
+                    test_scores.append(f1_score(test_y, pred, average='macro'))
+                    dev_scores.append(cnn.best_score_)
+                    f1_avg = sum(test_scores) / 3
+                    dev_avg = sum(dev_scores) / 3
+
                 print('------------------------------------------------------')
                 print('Is binary: {}'.format(is_binary))
                 print('Result for {}:'.format(infile))
-                print('Test F1_macro: {:.4f}'.format(f1_score(test_y, pred, average='macro')))
+                print('Test f1 scores: {}'.format(test_scores))
+                print('Average f1 macro: {:.4f}'.format(f1_avg))
+                print('Average dev score: {:.4f}'.format(dev_avg))
                 print('Confusion matrix:')
                 print(confusion_matrix(test_y, pred))
+                print('------------------------------------------------------')
+
+                if args.output is not None:
+                    with open(args.output, 'a', encoding='utf-8') as fout:
+                        fout.write('{},{},{},{},{},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n'.format(infile, src_lang,
+                                                                                         trg_lang, model,
+                                                                                         is_binary, *test_scores, f1_avg, dev_avg))
 
 
 if __name__ == '__main__':
@@ -171,8 +232,8 @@ if __name__ == '__main__':
                         type=float,
                         default=0.001)
     parser.add_argument('-e', '--epochs',
-                        help='training epochs (default: 200)',
-                        default=200,
+                        help='training epochs (default: 300)',
+                        default=300,
                         type=int)
     parser.add_argument('-bs', '--batch_size',
                         help='training batch size (default: 50)',
@@ -185,6 +246,10 @@ if __name__ == '__main__':
     parser.add_argument('--dropout',
                         help='dropout rate (default: 0.5)',
                         default=0.5,
+                        type=float)
+    parser.add_argument('-C', '--C',
+                        help='regularization parameter (default: 0.01)',
+                        default=0.01,
                         type=float)
     parser.add_argument('-o', '--output',
                         help='output file')
