@@ -380,6 +380,30 @@ def main(args):
                     best_W_trg = W_trg.copy()
                     best_dev_f1 = dev_f1
 
+                px = bdi_obj.src_proj_emb[train_x].sum(1) / train_l[:, xp.newaxis]
+                pz = bdi_obj.trg_proj_emb[dev_x].sum(1) / dev_l[:, xp.newaxis]
+                if args.binary:
+                    xtmp = xp.stack((px[train_y == 0].mean(0),
+                                     px[train_y == 1].mean(0),
+                                     px.mean(0),
+                                     pz[dev_y == 0].mean(0),
+                                     pz[dev_y == 1].mean(0),
+                                     pz.mean(0)), axis=0)
+                else:
+                    xtmp = xp.stack((px[train_y == 0].mean(0),
+                                     px[train_y == 1].mean(0),
+                                     px[train_y == 2].mean(0),
+                                     px[train_y == 3].mean(0),
+                                     px.mean(0),
+                                     pz[dev_y == 0].mean(0),
+                                     pz[dev_y == 1].mean(0),
+                                     pz[dev_y == 2].mean(0),
+                                     pz[dev_y == 3].mean(0),
+                                     pz.mean(0)), axis=0)
+                length_normalize(xtmp, inplace=True)
+                print('senti - distrance - matrix')
+                print(xtmp.dot(xtmp.T))
+
             # valiadation
             if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
                 bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
