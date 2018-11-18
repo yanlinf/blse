@@ -97,7 +97,9 @@ def main(args):
             bdi_obj.project(W_trg, full_trg=True)
             val_trg_ind = bdi_obj.get_target_indices(gold_dict[:, 0])
             accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
-            logging.info('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
+            proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
+            J = bdi_obj.objective
+            logging.info('epoch: %d  accuracy: %.4f  proj_err: %.4f  obj: %.6f  dict_size: %d' % (epoch, accuracy, proj_error, J, curr_dict.shape[0]))
 
     save_model(np.identity(W_trg.shape[0], dtype=np.float32), asnumpy(W_trg),
                args.source_lang, args.target_lang, 'ubi', args.save_path)
