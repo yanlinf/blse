@@ -7,7 +7,7 @@ from utils.bdi import *
 TARGET = 'emb/wiki.%s.vec'
 FORMAT = 'fasttext_text'
 NORMALIZE = ('unit', 'center', 'unit',)
-LANGS = ('es', 'ca', 'eu', 'fr', 'de', 'ja')
+LANGS = ('en', 'es', 'ca', 'eu')
 
 def main():
     if not os.path.exists('pickle'):
