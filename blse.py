@@ -114,7 +114,7 @@ class BLSE(object):
         """
         Save the model to the given path.
         """
-        self.saver.save(self.sess, path, global_step=self.global_step)
+        self.saver.save(self.sess, path)
 
     def load(self, path):
         self.saver.restore(self.sess, path)
@@ -149,15 +149,16 @@ class BLSE(object):
             closs, ploss, loss, = closs / nbatch, ploss / nbatch, loss / nbatch
             fscore = f1_score(train_y, pred, average='macro')
             logging.info('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  f1_macro: %.4f' % (epoch, loss, closs, ploss, fscore))
-            # if (epoch + 1) % 50 == 0:
-            #     self.save(self.savepath)
 
             if test_x is not None and test_y is not None:
                 test_f1 = self.score(test_x, test_y)
                 logging.info('Dev f1_macro: %.4f' % test_f1)
                 if test_f1 > best_test_f1:
+                    self.save('tmp/blse.ckpt')
                     best_test_f1 = test_f1
                     best_W_src, best_W_trg, best_P, best_b = self.sess.run([self.W_source, self.W_target, self.P, self.b])
+
+        self.load('tmp/blse.ckpt')
         return best_W_src, best_W_trg, best_P, best_b
 
     def predict(self, test_x):
