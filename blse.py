@@ -206,6 +206,9 @@ def load_data(binary=False):
     train_x, train_y = lookup_and_shuffle(*source_dataset.train, source_wordvecs.embedding, binary)
     test_x, test_y = lookup_and_shuffle(*target_dataset.test, target_wordvecs.embedding, binary)
     dev_x, dev_y = lookup_and_shuffle(*target_dataset.dev, target_wordvecs.embedding, binary)
+    trg_train_x, trg_train_y = lookup_and_shuffle(*target_dataset.train, target_wordvecs.embedding, binary)
+    dev_x = np.concatenate((trg_train_x, dev_x), axis=0)
+    dev_y = np.concatenate((trg_train_y, dev_y), axis=0)
 
     return source_wordvecs, target_wordvecs, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y
 
