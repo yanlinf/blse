@@ -50,11 +50,17 @@ def ubise(P, N, a, W, p):
     return J, dW, da
 
 
-def ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W, p, alpha):
-    J1, dW1, da = ubise(P, N, a, W, p)
-    J2, dW2, dc = ubise(SP, SPN, c, W, p)
-    J3, dW3, de = ubise(SN, SNN, e, W, p)
-    return (1 - alpha) * J1 + (J2 + J3) * alpha, (1 - alpha) * dW1 + (dW2 + dW3) * alpha, (1 - alpha) * da, dc * alpha, de * alpha
+def ubise_full_ovo(P, N, a, W, p):
+    J, dW, da = ubise(P, N, a, W, p)
+    return J, dW, da, xp.zeros_like(da), xp.zeros_like(da), xp.zeros_like(da)
+
+
+def ubise_full_ovr(P, Pn, SP, SPn, N, Nn, SN, SNn, a, c, e, g, W, p):
+    J1, dW1, da = ubise(P, Pn, a, W, p)
+    J2, dW2, dc = ubise(SP, SPn, c, W, p)
+    J3, dW3, de = ubise(N, Nn, e, W, p)
+    J4, dW4, dg = ubise(SN, SNn, g, W, p)
+    return J1 + J2 + J3 + J4, dW1 + dW2 + dW3 + dW4, da, dc, de, dg
 
 
 def proj_spectral(W, threshold):
@@ -138,14 +144,12 @@ def main(args):
     ysenti = xp.array(ysenti, dtype=xp.int32)
     P, SP = xsenti[ysenti == 0], xsenti[ysenti == 1]
     N, SN = xsenti[ysenti == 2], xsenti[ysenti == 3]
-    if SP.shape[0] == 0:
-        print('Warning: SP of size 0')
-        SP = P.copy()
-    if SN.shape[0] == 0:
-        print('Warning: SN of size 0')
-        SN = N.copy()
-    SPN = xp.concatenate((P, N, SN), axis=0)
-    SNN = xp.concatenate((P, SP, N), axis=0)
+    PP = xp.concatenate((P, SP), axis=0)
+    NN = xp.concatenate((N, SN), axis=0)
+    Pn = xp.concatenate((SP, N, SN), axis=0)
+    SPn = xp.concatenate((P, N, SN), axis=0)
+    Nn = xp.concatenate((P, SP, SN), axis=0)
+    SNn = xp.concatenate((P, SP, N), axis=0)
 
     if args.normalize_senti:
         length_normalize(xsenti, inplace=True)
@@ -154,7 +158,7 @@ def main(args):
     gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     init_dict = get_unsupervised_init_dict(src_wv.embedding, trg_wv.embedding, args.vocab_cutoff, args.csls, args.normalize, args.direction)
     init_dict = xp.array(init_dict)
-    logging.debug('gold dict shape' + str(gold_dict.shape))
+    print('gold dict shape' + str(gold_dict.shape))
 
     # initialize hyper parameters
     keep_prob = args.dropout_init
@@ -208,9 +212,11 @@ def main(args):
     a = xp.random.randn(args.vector_dim).astype(xp.float32)
     c = xp.random.randn(args.vector_dim).astype(xp.float32)
     e = xp.random.randn(args.vector_dim).astype(xp.float32)
+    g = xp.random.randn(args.vector_dim).astype(xp.float32)
     a /= xp.linalg.norm(a)
     c /= xp.linalg.norm(c)
     e /= xp.linalg.norm(e)
+    g /= xp.linalg.norm(g)
 
     # print alignment error
     if not args.no_proj_error:
@@ -235,50 +241,50 @@ def main(args):
 
                 # update a, c, e
                 if args.model == 'ovo':
-                    J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+                    J, dW, da, dc, de, dg = ubise_full_ovo(PP, NN, a, W_src, args.p)
                 elif args.model == 'ovr':
-                    J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
+                    J, dW, da, dc, de, dg = ubise_full_ovr(P, Pn, SP, SPn, N, Nn, SN, SNn, a, c, e, g, W_src, args.p)
                 print('\rJ: {0:.10f}'.format(float(J)), end='')
                 lr = args.learning_rate
                 cnt = 0
                 while lr > 1e-4:
-                    Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
-                    dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
-                    a, c, e = proj_l2(a - lr * da), proj_l2(c - lr * dc), proj_l2(e - lr * de)
+                    Jold, Wold, aold, cold, eold, gold = J, W_src.copy(), a.copy(), c.copy(), e.copy(), g.copy()
+                    dWold, daold, dcold, deold, dgold = dW.copy(), da.copy(), dc.copy(), de.copy(), dg.copy()
+                    a, c, e, g = proj_l2(a - lr * da), proj_l2(c - lr * dc), proj_l2(e - lr * de), proj_l2(g - lr * g)
                     if args.model == 'ovo':
-                        J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+                        J, dW, da, dc, de, dg = ubise_full_ovo(PP, NN, a, W_src, args.p)
                     elif args.model == 'ovr':
-                        J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
+                        J, dW, da, dc, de, dg = ubise_full_ovr(P, Pn, SP, SPn, N, Nn, SN, SNn, a, c, e, g, W_src, args.p)
                     print('\rJ: {0:.10f}'.format(float(J)), end='')
                     if J > Jold:
                         lr /= 2
-                        J, W_src, a, c, e = Jold, Wold, aold, cold, eold
-                        dW, da, dc, de = dWold, daold, dcold, deold
+                        J, W_src, a, c, e, g = Jold, Wold, aold, cold, eold, gold
+                        dW, da, dc, de, dg = dWold, daold, dcold, deold, dgold
                     elif Jold - J < 0.0000001:
                         break
                 print()
 
                 # update W_src
                 if args.model == 'ovo':
-                    J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+                    J, dW, da, dc, de, dg = ubise_full_ovo(PP, NN, a, W_src, args.p)
                 elif args.model == 'ovr':
-                    J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
+                    J, dW, da, dc, de, dg = ubise_full_ovr(P, Pn, SP, SPn, N, Nn, SN, SNn, a, c, e, g, W_src, args.p)
                 print('\rJ: {0:.10f}'.format(float(J)), end='')
                 lr = args.learning_rate
                 cnt = 0
                 while lr > 1e-10:
-                    Jold, Wold, aold, cold, eold = J, W_src.copy(), a.copy(), c.copy(), e.copy()
-                    dWold, daold, dcold, deold = dW.copy(), da.copy(), dc.copy(), de.copy()
+                    Jold, Wold, aold, cold, eold, gold = J, W_src.copy(), a.copy(), c.copy(), e.copy(), g.copy()
+                    dWold, daold, dcold, deold, dgold = dW.copy(), da.copy(), dc.copy(), de.copy(), dgold.copy()
                     W_src = proj_spectral(W_src - lr * dW, threshold=threshold)
                     if args.model == 'ovo':
-                        J, dW, da, dc, de = ubise_full(P, N, SP, P, SN, N, a, c, e, W_src, args.p, args.alpha)
+                        J, dW, da, dc, de, dg = ubise_full_ovo(PP, NN, a, W_src, args.p)
                     elif args.model == 'ovr':
-                        J, dW, da, dc, de = ubise_full(P, N, SP, SPN, SN, SNN, a, c, e, W_src, args.p, args.alpha)
+                        J, dW, da, dc, de, dg = ubise_full_ovr(P, Pn, SP, SPn, N, Nn, SN, SNn, a, c, e, g, W_src, args.p)
                     print('\rJ: {0:.10f}'.format(float(J)), end='')
                     if J > Jold:
                         lr /= 2
-                        J, W_src, a, c, e = Jold, Wold, aold, cold, eold
-                        dW, da, dc, de = dWold, daold, dcold, deold
+                        J, W_src, a, c, e, g = Jold, Wold, aold, cold, eold, gold
+                        dW, da, dc, de, dg = dWold, daold, dcold, deold, dgold
                     elif Jold - J < 0.0000001:
                         break
                 print()
@@ -369,40 +375,40 @@ def main(args):
             # update threshold
             threshold = min(args.threshold_step + threshold, args.threshold)
 
-            xs = np.concatenate((asnumpy(bdi_obj.src_proj_emb[train_x].sum(axis=1) / train_l[:, xp.newaxis]),
-                                 asnumpy(bdi_obj.trg_proj_emb[dev_x].sum(axis=1) / dev_l[:, xp.newaxis])), axis=0)
-            if epoch % 2 == 1:
-                clf.fit(xs, ys)
-                dev_f1 = clf.best_score_
-                print('dev_f1: {:.4f}'.format(dev_f1))
-                if dev_f1 > best_dev_f1:
-                    best_W_src = W_src.copy()
-                    best_W_trg = W_trg.copy()
-                    best_dev_f1 = dev_f1
+            # xs = np.concatenate((asnumpy(bdi_obj.src_proj_emb[train_x].sum(axis=1) / train_l[:, xp.newaxis]),
+            #                      asnumpy(bdi_obj.trg_proj_emb[dev_x].sum(axis=1) / dev_l[:, xp.newaxis])), axis=0)
+            # if epoch % 2 == 1:
+            #     clf.fit(xs, ys)
+            #     dev_f1 = clf.best_score_
+            #     print('dev_f1: {:.4f}'.format(dev_f1))
+            #     if dev_f1 > best_dev_f1:
+            #         best_W_src = W_src.copy()
+            #         best_W_trg = W_trg.copy()
+            #         best_dev_f1 = dev_f1
 
-                px = bdi_obj.src_proj_emb[train_x].sum(1) / train_l[:, xp.newaxis]
-                pz = bdi_obj.trg_proj_emb[dev_x].sum(1) / dev_l[:, xp.newaxis]
-                if args.binary:
-                    xtmp = xp.stack((px[train_y == 0].mean(0),
-                                     px[train_y == 1].mean(0),
-                                     px.mean(0),
-                                     pz[dev_y == 0].mean(0),
-                                     pz[dev_y == 1].mean(0),
-                                     pz.mean(0)), axis=0)
-                else:
-                    xtmp = xp.stack((px[train_y == 0].mean(0),
-                                     px[train_y == 1].mean(0),
-                                     px[train_y == 2].mean(0),
-                                     px[train_y == 3].mean(0),
-                                     px.mean(0),
-                                     pz[dev_y == 0].mean(0),
-                                     pz[dev_y == 1].mean(0),
-                                     pz[dev_y == 2].mean(0),
-                                     pz[dev_y == 3].mean(0),
-                                     pz.mean(0)), axis=0)
-                length_normalize(xtmp, inplace=True)
-                print('senti - distrance - matrix')
-                print(xtmp.dot(xtmp.T))
+            #     px = bdi_obj.src_proj_emb[train_x].sum(1) / train_l[:, xp.newaxis]
+            #     pz = bdi_obj.trg_proj_emb[dev_x].sum(1) / dev_l[:, xp.newaxis]
+            #     if args.binary:
+            #         xtmp = xp.stack((px[train_y == 0].mean(0),
+            #                          px[train_y == 1].mean(0),
+            #                          px.mean(0),
+            #                          pz[dev_y == 0].mean(0),
+            #                          pz[dev_y == 1].mean(0),
+            #                          pz.mean(0)), axis=0)
+            #     else:
+            #         xtmp = xp.stack((px[train_y == 0].mean(0),
+            #                          px[train_y == 1].mean(0),
+            #                          px[train_y == 2].mean(0),
+            #                          px[train_y == 3].mean(0),
+            #                          px.mean(0),
+            #                          pz[dev_y == 0].mean(0),
+            #                          pz[dev_y == 1].mean(0),
+            #                          pz[dev_y == 2].mean(0),
+            #                          pz[dev_y == 3].mean(0),
+            #                          pz.mean(0)), axis=0)
+            #     length_normalize(xtmp, inplace=True)
+            #     print('senti - distrance - matrix')
+            #     print(xtmp.dot(xtmp.T))
 
             # valiadation
             if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
@@ -419,9 +425,9 @@ def main(args):
             W_trg = proj_spectral(W_trg, threshold=args.threshold)
         model = 'ubise' if args.normalize_projection else args.model
         save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
-                   args.target_lang, args.model, args.save_path,
+                   args.target_lang, model, args.save_path,
                    alpha=args.alpha, dropout_init=args.dropout_init,
-                   a=asnumpy(a), c=asnumpy(c), e=asnumpy(e))
+                   a=asnumpy(a), c=asnumpy(c), e=asnumpy(e), g=asnumpy(g))
 
 
 if __name__ == '__main__':
@@ -432,7 +438,7 @@ if __name__ == '__main__':
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
     parser.add_argument('-p', '--p', type=float, default=0.7, help='parameter p')
     parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
-    parser.add_argument('-a', '--alpha', type=float, default=0.5, help='trade-off between sentiment and alignment')
+    # parser.add_argument('-a', '--alpha', type=float, default=0.5, help='trade-off between sentiment and alignment')
     parser.add_argument('--model', choices=['ovo', 'ovr', '0'], default='ovr', help='source objective function')
     parser.add_argument('--scorer', choices=['dot', 'euclidean'], default='dot', help='retrieval method')
     parser.add_argument('-bi', '--binary', action='store_true', help='use binary setting for valiadation')
