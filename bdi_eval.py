@@ -23,10 +23,7 @@ def main(args):
         with open('pickle/%s.bin' % trg_lang, 'rb') as fin:
             trg_wv = pickle.load(fin)
 
-        if trg_lang in ('es', 'ca', 'eu'):
-            gold_dict = BilingualDict('lexicons/apertium/{}-{}.txt'.format(src_lang, trg_lang)).get_indexed_dictionary(src_wv, trg_wv)
-        else:
-            gold_dict = BilingualDict('lexicons/muse/{}-{}.0-5000.txt'.format(src_lang, trg_lang)).get_indexed_dictionary(src_wv, trg_wv)
+        gold_dict = BilingualDict('lexicons/muse/{}-{}.0-5000.txt'.format(src_lang, trg_lang)).get_indexed_dictionary(src_wv, trg_wv)
 
         unit_norm = model in ('ubise',)
         xw = xp.array(src_wv.embedding[gold_dict[:, 0]].dot(W_src))
