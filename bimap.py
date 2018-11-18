@@ -178,21 +178,21 @@ if __name__ == '__main__':
         parser.set_defaults(source_lang='en', target_lang='es',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/es/opener_sents/',
-                            gold_dictionary='lexicons/apertium/en-es.txt', save_path='checkpoints/en-es-ubi-0.bin')
+                            gold_dictionary='lexicons/muse/en-es.0-5000.txt', save_path='checkpoints/en-es-ubi-0.bin')
     elif args.en_ca:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/ca.bin' if args.pickle else 'emb/wiki.ca.vec'
         parser.set_defaults(source_lang='en', target_lang='ca',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/ca/opener_sents/',
-                            gold_dictionary='lexicons/apertium/en-ca.txt', save_path='checkpoints/en-ca-ubi-0.bin')
+                            gold_dictionary='lexicons/muse/en-ca.0-5000.txt', save_path='checkpoints/en-ca-ubi-0.bin')
     elif args.en_eu:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
         trg_emb_file = 'pickle/eu.bin' if args.pickle else 'emb/wiki.eu.vec'
         parser.set_defaults(source_lang='en', target_lang='eu',
                             source_embedding=src_emb_file, target_embedding=trg_emb_file, format='fasttext_text',
                             source_dataset='datasets/en/opener_sents/', target_dataset='datasets/eu/opener_sents/',
-                            gold_dictionary='lexicons/apertium/en-eu.txt', save_path='checkpoints/en-eu-ubi-0.bin')
+                            gold_dictionary='lexicons/muse/en-eu.0-5000.txt', save_path='checkpoints/en-eu-ubi-0.bin')
 
     elif args.en_fr:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
