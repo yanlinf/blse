@@ -148,17 +148,19 @@ class BLSE(object):
 
             closs, ploss, loss, = closs / nbatch, ploss / nbatch, loss / nbatch
             fscore = f1_score(train_y, pred, average='macro')
-            logging.info('epoch: %d  loss: %.4f  class_loss: %.4f  proj_loss: %.4f  f1_macro: %.4f' % (epoch, loss, closs, ploss, fscore))
 
             if test_x is not None and test_y is not None:
                 test_f1 = self.score(test_x, test_y)
-                logging.info('Dev f1_macro: %.4f' % test_f1)
+                print('\repoch: %d  loss: %.4f  f1_macro: %.4f  dev_f1: %.4f' % (epoch, loss, fscore, test_f1), end='')
                 if test_f1 > best_test_f1:
                     self.save('tmp/blse.ckpt')
                     best_test_f1 = test_f1
                     best_W_src, best_W_trg, best_P, best_b = self.sess.run([self.W_source, self.W_target, self.P, self.b])
-
-        self.load('tmp/blse.ckpt')
+            else:
+                print('\repoch: %d  loss: %.4f  f1_macro: %.4f' % (epoch, loss, fscore), end='')
+        print()
+        if test_x is not None and test_y is not None:
+            self.load('tmp/blse.ckpt')
         return best_W_src, best_W_trg, best_P, best_b
 
     def predict(self, test_x):
@@ -224,7 +226,7 @@ def load_data(binary=False):
 
 
 def main(args):
-    logging.info(str(args))
+    print(str(args))
     source_wordvecs, target_wordvecs, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y = load_data(
         binary=args.binary)  # numpy array
     with tf.Session() as sess:
@@ -236,7 +238,7 @@ def main(args):
         else:
             W_src, W_trg, P, b = model.fit(train_x, train_y, source_words, target_words, dev_x, dev_y)
 
-        logging.info('Test f1_macro: %.4f' % model.score(test_x, test_y))
+        print('Test f1_macro: %.4f' % model.score(test_x, test_y))
         save_model(W_src, W_trg, args.source_lang, args.target_lang,
                    'blse', args.save_path, P=P, b=b)
 
