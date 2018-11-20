@@ -7,9 +7,11 @@ from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
 from utils.model import *
+import glob
+import os
 import logging
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 MAX_LEN = 64
 TMP_FILE = 'tmp/cnn{:d}.ckpt'.format(np.random.randint(0, 1e10))
@@ -148,7 +150,7 @@ class SentiCNN(object):
             raise NotImplementedError()
 
     def save(self, savepath):
-        self.saver.save(self.sess, '/tmp/cnn.ckpt')
+        self.saver.save(self.sess, savepath)
 
 
 def main(args):
@@ -159,7 +161,7 @@ def main(args):
 
     if args.output is not None:
         with open(args.output, 'w', encoding='utf-8') as fout:
-            fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro_1,f1_macro_2,f1_macro_3,f1_macro_average,dev_average\n')
+            fout.write('infile,src_lang,trg_lang,model,is_binary,{},f1_macro,best_dev\n'.format(','.join(['f1_{:.4f}'.format(C) for C in args.C])))
 
     if args.setting == 'both':
         settings = [True, False]
@@ -216,36 +218,42 @@ def main(args):
             for t, w in enumerate(class_weight):
                 weights[train_y == t] = w
 
-            tf.reset_default_graph()
-            with tf.Session(config=config) as sess:
-                cnn = SentiCNN(sess, vec_dim, (2 if is_binary else 4),
-                               args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout, args.C, args.clip)
-                test_scores = []
-                dev_scores = []
-                for i in range(3):
+            test_scores = []
+            best_dev = 0
+            test_f1 = None
+            test_pred = None
+            for C in args.C:
+                tf.reset_default_graph()
+                with tf.Session(config=config) as sess:
+                    cnn = SentiCNN(sess, vec_dim, (2 if is_binary else 4),
+                                   args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout, C, args.clip)
                     cnn.initialize()
                     cnn.fit(train_x, train_y, dev_x, dev_y, weights)
                     pred = cnn.predict(test_x)
                     test_scores.append(f1_score(test_y, pred, average='macro'))
-                    dev_scores.append(cnn.best_score_)
-                    f1_avg = sum(test_scores) / 3
-                    dev_avg = sum(dev_scores) / 3
+                    if cnn.best_score_ > best_dev:
+                        best_dev = cnn.best_score_
+                        test_f1 = test_scores[-1]
+                        test_pred = pred
 
-                print('------------------------------------------------------')
-                print('Is binary: {}'.format(is_binary))
-                print('Result for {}:'.format(infile))
-                print('Test f1 scores: {}'.format(test_scores))
-                print('Average f1 macro: {:.4f}'.format(f1_avg))
-                print('Average dev score: {:.4f}'.format(dev_avg))
-                print('Confusion matrix:')
-                print(confusion_matrix(test_y, pred))
-                print('------------------------------------------------------')
+            print('------------------------------------------------------')
+            print('Is binary: {}'.format(is_binary))
+            print('Result for {}:'.format(infile))
+            print('Test f1 scores: {}'.format(test_scores))
+            print('Test f1 macro: {:.4f}'.format(test_f1))
+            print('Best dev score: {:.4f}'.format(best_dev))
+            print('Confusion matrix:')
+            print(confusion_matrix(test_y, test_pred))
+            print('------------------------------------------------------')
 
-                if args.output is not None:
-                    with open(args.output, 'a', encoding='utf-8') as fout:
-                        fout.write('{},{},{},{},{},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n'.format(infile, src_lang,
-                                                                                                trg_lang, model,
-                                                                                                is_binary, *test_scores, f1_avg, dev_avg))
+            if args.output is not None:
+                with open(args.output, 'a', encoding='utf-8') as fout:
+                    fout.write(('{},{},{},{},{},' + '{:.4f},' * len(args.C) + '{:.4f},{:.4f}\n').format(infile, src_lang,
+                                                                                                        trg_lang, model,
+                                                                                                        is_binary, *test_scores,
+                                                                                                        test_f1, best_dev))
+    for f in glob.glob(TMP_FILE + '*'):
+        os.remove(f)
 
 
 if __name__ == '__main__':
@@ -278,9 +286,10 @@ if __name__ == '__main__':
                         default=0.5,
                         type=float)
     parser.add_argument('-C', '--C',
-                        help='regularization parameter (default: 0.03)',
-                        default=0.03,
-                        type=float)
+                        nargs='+',
+                        type=float,
+                        default=[0.4, 0.8, 1.6, 3],
+                        help='regularization parameter (default: 0.03)')
     parser.add_argument('--clip',
                         action='store_true',)
     parser.add_argument('-o', '--output',
@@ -291,6 +300,8 @@ if __name__ == '__main__':
                         dest='loglevel',
                         default=logging.INFO,
                         const=logging.DEBUG)
+
+    parser.set_defaults(clip=True)
 
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel,
