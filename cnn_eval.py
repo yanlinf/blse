@@ -12,6 +12,7 @@ import logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 MAX_LEN = 64
+TMP_FILE = 'tmp/cnn{:d}.ckpt'.format(np.random.randint(0, 1e10))
 
 
 class SentiCNN(object):
@@ -27,7 +28,8 @@ class SentiCNN(object):
                  num_epoch=200,
                  num_filters=64,
                  dropout=0.5,
-                 C=0.01):
+                 C=0.03,
+                 clip=False):
         self.sess = sess
         self.vec_dim = vec_dim
         self.nclasses = nclasses
@@ -37,6 +39,7 @@ class SentiCNN(object):
         self.num_filters = num_filters
         self.dropout = dropout
         self.C = C
+        self.clip = clip
         self._build_graph()
         self.initialize()
         self.saver = tf.train.Saver()
@@ -72,19 +75,29 @@ class SentiCNN(object):
         b4 = tf.get_variable('b4', (self.nclasses,), tf.float32, initializer=tf.zeros_initializer())
         logits = tf.matmul(pooled, W4) + b4
 
+        params = [W1, W2, W3, W4]
+        self.assigns = []
+        for param in params:
+            scale = tf.minimum(self.C / tf.sqrt(tf.reduce_sum(tf.square(param), axis=0)), 1)
+            self.assigns.append(tf.assign(param, scale * param))
+
         self.W1 = W1
         self.W2 = W2
         self.b2 = b2
         self.pred = tf.argmax(logits, axis=1)
-        self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.labels, self.nclasses), logits, weights=self.batch_weights) + \
-            (tf.nn.l2_loss(W1) + tf.nn.l2_loss(W2) + tf.nn.l2_loss(W3) + tf.nn.l2_loss(W4)) * self.C
+        self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.labels, self.nclasses), logits, weights=self.batch_weights)
+        if not self.clip:
+            self.loss = self.loss + (tf.nn.l2_loss(W1) + tf.nn.l2_loss(W2) + tf.nn.l2_loss(W3) + tf.nn.l2_loss(W4)) * self.C
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
     def initialize(self):
         self.sess.run(tf.global_variables_initializer())
+        if self.clip:
+            self.sess.run(self.assigns)
 
     def fit(self, train_x, train_y, dev_x=None, dev_y=None, weights=None):
         max_f1 = 0
+        self.saver.save(self.sess, TMP_FILE)
         self.best_W1_ = self.best_W2_ = self.best_b2_ = None
         nsample = len(train_x)
         if weights is None:
@@ -101,6 +114,8 @@ class SentiCNN(object):
                                                          self.labels: ys,
                                                          self.keep_prob: self.dropout,
                                                          self.batch_weights: ws})
+                if self.clip:
+                    self.sess.run(self.assigns)
                 loss += loss_ * len(xs)
                 pred[offset:offset + self.batch_size] = pred_
             loss /= nsample
@@ -112,7 +127,7 @@ class SentiCNN(object):
                 if dev_f1 > max_f1:
                     max_f1 = dev_f1
                     self.best_W1_, self.best_W2_, self.best_b2_ = self.sess.run([self.W1, self.W2, self.b2])
-                    self.saver.save(self.sess, 'tmp/cnn.ckpt')
+                    self.saver.save(self.sess, TMP_FILE)
             else:
                 print('epoch: {:d}  f1: {:.4f}  loss: {:.6f}\r'.format(epoch, fscore, loss), end='', flush=True)
         print()
@@ -120,7 +135,7 @@ class SentiCNN(object):
         if dev_x is None or dev_y is None:
             self.best_W1_, self.best_W2_, self.best_b2_ = self.sess.run([self.W1, self.W2, self.b2])
         else:
-            self.saver.restore(self.sess, 'tmp/cnn.ckpt')
+            self.saver.restore(self.sess, TMP_FILE)
 
     def predict(self, test_x):
         pred = self.sess.run(self.pred, {self.inputs: test_x, self.keep_prob: 1.})
@@ -138,9 +153,20 @@ class SentiCNN(object):
 
 def main(args):
     print(str(args))
+
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = 0.4
+
     if args.output is not None:
         with open(args.output, 'w', encoding='utf-8') as fout:
             fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro_1,f1_macro_2,f1_macro_3,f1_macro_average,dev_average\n')
+
+    if args.setting == 'both':
+        settings = [True, False]
+    elif args.setting == 'binary':
+        settings = [True, ]
+    elif args.setting == '4-class':
+        settings = [False, ]
 
     for infile in args.W:
         dic = load_model(infile)
@@ -172,7 +198,7 @@ def main(args):
             src_wv.embedding.dot(W_src, out=src_proj_emb)
             trg_wv.embedding.dot(W_trg, out=trg_proj_emb)
 
-        for is_binary in (True, False):
+        for is_binary in settings:
             src_ds = SentimentDataset('datasets/%s/opener_sents/' % src_lang).to_index(src_wv, binary=is_binary).pad(src_pad_id, MAX_LEN).to_vecs(src_proj_emb, True)
             trg_ds = SentimentDataset('datasets/%s/opener_sents/' % trg_lang).to_index(trg_wv, binary=is_binary).pad(trg_pad_id, MAX_LEN).to_vecs(trg_proj_emb, True)
             vec_dim = src_proj_emb.shape[1]
@@ -191,9 +217,9 @@ def main(args):
                 weights[train_y == t] = w
 
             tf.reset_default_graph()
-            with tf.Session() as sess:
+            with tf.Session(config=config) as sess:
                 cnn = SentiCNN(sess, vec_dim, (2 if is_binary else 4),
-                               args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout, args.C)
+                               args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout, args.C, args.clip)
                 test_scores = []
                 dev_scores = []
                 for i in range(3):
@@ -218,8 +244,8 @@ def main(args):
                 if args.output is not None:
                     with open(args.output, 'a', encoding='utf-8') as fout:
                         fout.write('{},{},{},{},{},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n'.format(infile, src_lang,
-                                                                                         trg_lang, model,
-                                                                                         is_binary, *test_scores, f1_avg, dev_avg))
+                                                                                                trg_lang, model,
+                                                                                                is_binary, *test_scores, f1_avg, dev_avg))
 
 
 if __name__ == '__main__':
@@ -227,13 +253,17 @@ if __name__ == '__main__':
     parser.add_argument('W',
                         nargs='+',
                         help='checkpoint files')
+    parser.add_argument('--setting',
+                        choices=['binary', '4-class', 'both'],
+                        default='both',
+                        help='classification setting')
     parser.add_argument('-lr', '--learning_rate',
                         help='learning rate (default: 0.001)',
                         type=float,
                         default=0.001)
     parser.add_argument('-e', '--epochs',
-                        help='training epochs (default: 300)',
-                        default=300,
+                        help='training epochs (default: 200)',
+                        default=200,
                         type=int)
     parser.add_argument('-bs', '--batch_size',
                         help='training batch size (default: 50)',
@@ -248,9 +278,11 @@ if __name__ == '__main__':
                         default=0.5,
                         type=float)
     parser.add_argument('-C', '--C',
-                        help='regularization parameter (default: 0.01)',
-                        default=0.01,
+                        help='regularization parameter (default: 0.03)',
+                        default=0.03,
                         type=float)
+    parser.add_argument('--clip',
+                        action='store_true',)
     parser.add_argument('-o', '--output',
                         help='output file')
     parser.add_argument('--debug',
