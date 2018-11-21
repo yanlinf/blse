@@ -231,7 +231,7 @@ def main(args):
             print('threshold: %.4f' % threshold)
 
             # update current dictionary
-            if epoch % 2 == 0:
+            if epoch % 2 == 0 and threshold < args.threshold_valid:
                 curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
             # update W_src
@@ -373,7 +373,8 @@ def main(args):
             keep_prob = min(1., keep_prob + args.dropout_step)
 
             # update threshold
-            threshold = min(args.threshold_step + threshold, args.threshold)
+            if epoch % 2 == 1:
+                threshold = min(args.threshold_step * 2 + threshold, args.threshold)
 
             # xs = np.concatenate((asnumpy(bdi_obj.src_proj_emb[train_x].sum(axis=1) / train_l[:, xp.newaxis]),
             #                      asnumpy(bdi_obj.trg_proj_emb[dev_x].sum(axis=1) / dev_l[:, xp.newaxis])), axis=0)
@@ -481,6 +482,7 @@ if __name__ == '__main__':
     threshold_group.add_argument('--threshold', type=float, default=1., help='spectral norm constraint')
     threshold_group.add_argument('--threshold_init', type=float, default=1., help='spectral norm constraint')
     threshold_group.add_argument('--threshold_step', type=float, default=0.05, help='spectral norm constraint')
+    threshold_group.add_argument('--threshold_valid', type=float, default=float('inf'), help='valid threshold for updating bilingual dictionary')
 
     induction_group = parser.add_argument_group()
     induction_group.add_argument('-vc', '--vocab_cutoff', default=10000, type=int, help='restrict the vocabulary to k most frequent words')
