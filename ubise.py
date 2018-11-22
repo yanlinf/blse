@@ -128,17 +128,8 @@ def main(args):
     clf = GridSearchCV(svm.LinearSVC(), param_grid, scoring='f1_macro', n_jobs=cpu_count(), cv=cv_split)
 
     best_dev_f1 = 0
-    # xsenti = xp.array(src_wv.embedding[src_ds.train[0]].sum(axis=1) / src_ds.train[2][:, np.newaxis], dtype=xp.float32)
-    # ysenti = xp.array(src_ds.train[1], dtype=xp.int32)
-
-    ###################### TEST ######################
-    if args.target_lang in ('es', 'ca', 'eu'):
-        with open('pickle/senti_opener.bin', 'rb') as fin:
-            xsenti, ysenti = pickle.load(fin)
-    else:
-        with open('pickle/senti.bin', 'rb') as fin:
-            xsenti, ysenti = pickle.load(fin)
-    ##################################################
+    with open(args.senti, 'rb') as fin:
+        xsenti, ysenti = pickle.load(fin)
 
     xsenti = xp.array(xsenti, dtype=xp.float32)
     ysenti = xp.array(ysenti, dtype=xp.int32)
@@ -376,6 +367,18 @@ def main(args):
             if epoch % 2 == 1:
                 threshold = min(args.threshold_step * 2 + threshold, args.threshold)
 
+                if args.dump and threshold % 1 < args.threshold_step * 2:
+                    export_path = args.save_path.split('-')
+                    for i in range(len(export_path)):
+                        if export_path[i][0] == 't':
+                            export_path[i] = 't{:d}'.format(int(threshold))
+                    export_path = '-'.join(export_path)
+                    model = 'ubise' if args.normalize_projection else args.model
+                    save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
+                               args.target_lang, model, export_path,
+                               alpha=args.alpha, dropout_init=args.dropout_init,
+                               a=asnumpy(a), c=asnumpy(c), e=asnumpy(e), g=asnumpy(g))
+
             # xs = np.concatenate((asnumpy(bdi_obj.src_proj_emb[train_x].sum(axis=1) / train_l[:, xp.newaxis]),
             #                      asnumpy(bdi_obj.trg_proj_emb[dev_x].sum(axis=1) / dev_l[:, xp.newaxis])), axis=0)
             # if epoch % 2 == 1:
@@ -442,7 +445,9 @@ if __name__ == '__main__':
     # parser.add_argument('-a', '--alpha', type=float, default=0.5, help='trade-off between sentiment and alignment')
     parser.add_argument('--model', choices=['ovo', 'ovr', '0'], default='ovr', help='source objective function')
     parser.add_argument('--scorer', choices=['dot', 'euclidean'], default='dot', help='retrieval method')
-    parser.add_argument('-bi', '--binary', action='store_true', help='use binary setting for valiadation')
+    parser.add_argument('--senti', default='pickle/senti_opener.bin', help='sentiment vectors')
+    parser.add_argument('--dump', action='store_true')
+    parser.add_argument('-bi', '--binary', action='store_true')
 
     training_group = parser.add_argument_group()
     training_group.add_argument('--source_lang', default='en', help='source language')
