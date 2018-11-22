@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import argparse
+from sklearn.utils.class_weight import compute_class_weight
 from sklearn.metrics import f1_score, confusion_matrix
 import pickle
 from utils.dataset import *
@@ -29,6 +30,7 @@ class AttenAverage(object):
     def _build_graph(self):
         self.inputs = tf.placeholder(tf.float32, shape=(None, self.pad, self.vec_dim))
         self.labels = tf.placeholder(tf.int32, shape=(None,))
+        self.batch_weights = tf.placeholder(tf.float32, shape=(None,))
 
         W1 = tf.get_variable('W1', (self.vec_dim, self.num_atten), tf.float32, initializer=tf.random_uniform_initializer(-1., 1.))
         b1 = tf.get_variable('b1', (self.num_atten), tf.float32, initializer=tf.zeros_initializer())
@@ -47,19 +49,23 @@ class AttenAverage(object):
         logits = L1 @ W2 + b2
 
         self.pred = tf.argmax(logits, axis=1)
-        self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.labels, self.nclasses), logits)
+        self.loss = tf.losses.softmax_cross_entropy(tf.one_hot(self.labels, self.nclasses), logits, weights=self.batch_weights)
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
-    def fit(self, train_x, train_y, test_x=None, test_y=None):
+    def fit(self, train_x, train_y, test_x=None, test_y=None, weights=None):
         nsample = len(train_x)
+        if weights is None:
+            weights = np.ones(train_x.shape[0])
+
         for epoch in range(self.num_epoch):
             loss = 0.
             pred = np.zeros(nsample)
             for index, offset in enumerate(range(0, nsample, self.batch_size)):
                 xs = train_x[offset:offset + self.batch_size]
                 ys = train_y[offset:offset + self.batch_size]
+                ws = weights[offset:offset + self.batch_size]
                 _, loss_, pred_, = self.sess.run([self.optimizer, self.loss, self.pred],
-                                                 {self.inputs: xs, self.labels: ys})
+                                                 {self.inputs: xs, self.labels: ys, self.batch_weights: ws})
                 loss += loss_ * len(xs)
                 pred[offset:offset + self.batch_size] = pred_
             loss /= nsample
@@ -118,10 +124,19 @@ def main(args):
     src_ds = SentimentDataset(args.source_dataset).to_index(src_wv)
     train_x, train_y = make_data(*src_ds.train, src_wv.embedding, vec_dim, args.binary, src_pad_id)
     test_x, test_y = make_data(*src_ds.test, src_wv.embedding, vec_dim, args.binary, src_pad_id)
+
+    if args.balanced:
+        class_weight = compute_class_weight('balanced', np.unique(train_y), train_y)
+        weights = np.zeros(train_x.shape[0], dtype=np.float32)
+        for t, w in enumerate(class_weight):
+            weights[train_y == t] = w
+    else:
+        weights = np.ones(train_x.shape[0], dtype=np.float32)
+
     with tf.Session() as sess:
         model = AttenAverage(sess, vec_dim, (2 if args.binary else 4),
                              args.learning_rate, args.batch_size, args.epochs, pad=args.pad)
-        model.fit(train_x, train_y, test_x, test_y)
+        model.fit(train_x, train_y, test_x, test_y, weights)
         print('test f1_macro: %.4f' % model.score(test_x, test_y))
 
         pred = model.predict(test_x)
@@ -171,6 +186,9 @@ if __name__ == '__main__':
                         type=int,
                         default=256,
                         help='padding size')
+    parser.add_argument('--balanced',
+                        action='store_true',
+                        help='compute class weights')
     parser.add_argument('--debug',
                         help='print debug info',
                         action='store_const',
