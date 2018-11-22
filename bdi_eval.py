@@ -1,6 +1,7 @@
 import argparse
 import pickle
 import numpy as np
+import collections
 from utils.dataset import *
 from utils.math import *
 from utils.bdi import *
@@ -23,10 +24,15 @@ def main(args):
         with open('pickle/%s.bin' % trg_lang, 'rb') as fin:
             trg_wv = pickle.load(fin)
 
-        gold_dict = BilingualDict('lexicons/muse/{}-{}.0-5000.txt'.format(src_lang, trg_lang)).get_indexed_dictionary(src_wv, trg_wv)
+        word_pairs = BilingualDict('lexicons/muse/{}-{}.0-5000.txt'.format(src_lang, trg_lang)).get_indexed_dictionary(src_wv, trg_wv)
+        gold_dict = collections.defaultdict(set)
+        for s, t in word_pairs:
+            gold_dict[s].add(t)
+        sidx = np.array(list(gold_dict.keys()), dtype=np.int32)
+
 
         unit_norm = model in ('ubise',)
-        xw = xp.array(src_wv.embedding[gold_dict[:, 0]].dot(W_src))
+        xw = xp.array(src_wv.embedding[sidx].dot(W_src))
         zw = xp.array(trg_wv.embedding.dot(W_trg))
         if unit_norm:
             length_normalize(xw, inplace=True)
@@ -45,7 +51,7 @@ def main(args):
                 s[:j - i] -= t / 2
             xp.argmax(s[:j - i], axis=1, out=tidx[i:j])
 
-        accuracy = (asnumpy(tidx) == gold_dict[:, 1]).mean()
+        accuracy = sum([1 for s, t in zip(sidx, tidx) if t in gold_dict[s]]) / len(gold_dict)
         print('file: {}   acc: {}'.format(infile, accuracy))
 
 
