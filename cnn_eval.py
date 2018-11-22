@@ -161,7 +161,7 @@ def main(args):
 
     if args.output is not None:
         with open(args.output, 'w', encoding='utf-8') as fout:
-            fout.write('infile,src_lang,trg_lang,model,is_binary,{},f1_macro,best_dev\n'.format(','.join(['f1_{:.4f}'.format(C) for C in args.C])))
+            fout.write('infile,src_lang,trg_lang,model,is_binary,f1_macro,f1_macro,f1_macro,f1_macro,average_dev\n')
 
     if args.setting == 'both':
         settings = [True, False]
@@ -217,41 +217,51 @@ def main(args):
             weights = np.zeros(train_x.shape[0], dtype=np.float32)
             for t, w in enumerate(class_weight):
                 weights[train_y == t] = w
+            # if is_binary:
+            #     weights[:] = 1
 
             test_scores = []
-            best_dev = 0
-            test_f1 = None
-            test_pred = None
-            for C in args.C:
-                tf.reset_default_graph()
-                with tf.Session(config=config) as sess:
-                    cnn = SentiCNN(sess, vec_dim, (2 if is_binary else 4),
-                                   args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout, C, args.clip)
-                    cnn.initialize()
-                    cnn.fit(train_x, train_y, dev_x, dev_y, weights)
-                    pred = cnn.predict(test_x)
-                    test_scores.append(f1_score(test_y, pred, average='macro'))
-                    if cnn.best_score_ > best_dev:
-                        best_dev = cnn.best_score_
-                        test_f1 = test_scores[-1]
-                        test_pred = pred
+            dev_scores = []
+            for i in range(3):
+                best_dev = 0
+                test_f1 = None
+                test_pred = None
+                for C in args.C:
+                    print('C = {}'.format(C))
+                    tf.reset_default_graph()
+                    with tf.Session(config=config) as sess:
+                        cnn = SentiCNN(sess, vec_dim, (2 if is_binary else 4),
+                                       args.learning_rate, args.batch_size, args.epochs, args.filters, args.dropout, C, args.clip)
+                        cnn.initialize()
+                        cnn.fit(train_x, train_y, dev_x, dev_y, weights)
+                        pred = cnn.predict(test_x)
+                        score = f1_score(test_y, pred, average='macro')
+                        if cnn.best_score_ > best_dev:
+                            best_dev = cnn.best_score_
+                            test_f1 = score
+                            test_pred = pred
+                        print('test f1 = {:.4f}'.format(score))
+                test_scores.append(test_f1)
+                dev_scores.append(best_dev)
+            avg_test_f1 = sum(test_scores) / 3
+            avg_dev_f1 = sum(dev_scores) / 3
 
             print('------------------------------------------------------')
             print('Is binary: {}'.format(is_binary))
             print('Result for {}:'.format(infile))
             print('Test f1 scores: {}'.format(test_scores))
-            print('Test f1 macro: {:.4f}'.format(test_f1))
-            print('Best dev score: {:.4f}'.format(best_dev))
+            print('Average test f1 macro: {:.4f}'.format(avg_test_f1))
+            print('Average dev score: {:.4f}'.format(best_dev))
             print('Confusion matrix:')
             print(confusion_matrix(test_y, test_pred))
             print('------------------------------------------------------')
 
             if args.output is not None:
                 with open(args.output, 'a', encoding='utf-8') as fout:
-                    fout.write(('{},{},{},{},{},' + '{:.4f},' * len(args.C) + '{:.4f},{:.4f}\n').format(infile, src_lang,
-                                                                                                        trg_lang, model,
-                                                                                                        is_binary, *test_scores,
-                                                                                                        test_f1, best_dev))
+                    fout.write(('{},{},{},{},{},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n').format(infile, src_lang,
+                                                                                       trg_lang, model,
+                                                                                       is_binary, *test_scores,
+                                                                                       avg_test_f1, avg_dev_f1))
     for f in glob.glob(TMP_FILE + '*'):
         os.remove(f)
 
@@ -270,8 +280,8 @@ if __name__ == '__main__':
                         type=float,
                         default=0.001)
     parser.add_argument('-e', '--epochs',
-                        help='training epochs (default: 200)',
-                        default=200,
+                        help='training epochs (default: 60)',
+                        default=60,
                         type=int)
     parser.add_argument('-bs', '--batch_size',
                         help='training batch size (default: 50)',
@@ -288,7 +298,7 @@ if __name__ == '__main__':
     parser.add_argument('-C', '--C',
                         nargs='+',
                         type=float,
-                        default=[0.4, 0.8, 1.6, 3],
+                        default=[0.6, 0.7, 0.8, 1.0, 1.5, 2.0, 3.0],
                         help='regularization parameter (default: 0.03)')
     parser.add_argument('--clip',
                         action='store_true',)
