@@ -298,7 +298,7 @@ if __name__ == '__main__':
     parser.add_argument('-C', '--C',
                         nargs='+',
                         type=float,
-                        default=[0.6, 0.7, 0.8, 1.0, 1.5, 2.0, 3.0],
+                        default=[0.7, 0.8, 1.0, 1.5, 2.0, 3.0],
                         help='regularization parameter (default: 0.03)')
     parser.add_argument('--clip',
                         action='store_true',)
