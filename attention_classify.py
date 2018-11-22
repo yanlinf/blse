@@ -135,7 +135,7 @@ def main(args):
 
     with tf.Session() as sess:
         model = AttenAverage(sess, vec_dim, (2 if args.binary else 4),
-                             args.learning_rate, args.batch_size, args.epochs, pad=args.pad)
+                             args.learning_rate, args.batch_size, args.epochs, num_atten=args.hidden_size, pad=args.pad)
         model.fit(train_x, train_y, test_x, test_y, weights)
         print('test f1_macro: %.4f' % model.score(test_x, test_y))
 
@@ -189,6 +189,10 @@ if __name__ == '__main__':
     parser.add_argument('--balanced',
                         action='store_true',
                         help='compute class weights')
+    parser.add_argument('--hidden_size',
+                        type=int,
+                        default=4,
+                        help='size of hidden units')
     parser.add_argument('--debug',
                         help='print debug info',
                         action='store_const',
