@@ -227,9 +227,13 @@ def load_data(binary=False):
 
 def main(args):
     print(str(args))
+
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = 0.3
+
     source_wordvecs, target_wordvecs, source_words, target_words, train_x, train_y, test_x, test_y, dev_x, dev_y = load_data(
         binary=args.binary)  # numpy array
-    with tf.Session() as sess:
+    with tf.Session(config=config) as sess:
         model = BLSE(sess, args.save_path, args.vector_dim, args.alpha, args.learning_rate,
                      args.batch_size, args.epochs, binary=args.binary)
 
