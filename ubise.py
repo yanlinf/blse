@@ -38,10 +38,16 @@ def ubise(P, N, a, W, p):
     xp = get_array_module(P, N, a, W)
     pw = P.dot(W)
     nw = N.dot(W)
-    k1 = int(P.shape[0] * p)
-    k2 = int(N.shape[0] * p)
-    pi = topkidx(-pw.dot(a), k1, inplace=True)
-    ni = topkidx(nw.dot(a), k2, inplace=True)
+    if p == 1.0:
+        k1 = P.shape[0]
+        k2 = N.shape[0]
+        pi = xp.arange(k1)
+        ni = xp.arange(k2)
+    else:
+        k1 = int(P.shape[0] * p)
+        k2 = int(N.shape[0] * p)
+        pi = topkidx(-pw.dot(a), k1, inplace=True)
+        ni = topkidx(nw.dot(a), k2, inplace=True)
     xpw = pw[pi]
     xnw = nw[ni]
     J = -xpw.dot(a).mean() + xnw.dot(a).mean()
@@ -149,6 +155,7 @@ def main(args):
     gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     init_dict = get_unsupervised_init_dict(src_wv.embedding, trg_wv.embedding, args.vocab_cutoff, args.csls, args.normalize, args.direction)
     init_dict = xp.array(init_dict)
+    curr_dict = init_dict
     print('gold dict shape' + str(gold_dict.shape))
 
     # initialize hyper parameters
@@ -177,24 +184,24 @@ def main(args):
 
         W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
         lr = args.learning_rate
-        X_src = bdi_obj.src_proj_emb[init_dict[:, 0]]
-        X_trg = bdi_obj.trg_emb[init_dict[:, 1]]
-        prev_loss, loss = float('inf'), float('inf')
-        while lr > 1e-4:
-            prev_W = W_trg.copy()
-            prev_loss = loss
-            grad = -2 * X_trg.T.dot(X_src)
-            W_trg -= lr * grad
-            W_trg = proj_spectral(W_trg, threshold=1)
-            loss = -2 * (X_trg.dot(W_trg) * X_src).sum()
-            if loss > prev_loss:
-                lr /= 2
-                W_trg = prev_W
-                loss = prev_loss
-            elif prev_loss - loss < 0.5:
-                break
-            u, s, vt = xp.linalg.svd(W_trg)
-            W_trg = u.dot(vt)
+        # X_src = bdi_obj.src_proj_emb[init_dict[:, 0]]
+        # X_trg = bdi_obj.trg_emb[init_dict[:, 1]]
+        # prev_loss, loss = float('inf'), float('inf')
+        # while lr > 1e-4:
+        #     prev_W = W_trg.copy()
+        #     prev_loss = loss
+        #     grad = -2 * X_trg.T.dot(X_src)
+        #     W_trg -= lr * grad
+        #     W_trg = proj_spectral(W_trg, threshold=1)
+        #     loss = -2 * (X_trg.dot(W_trg) * X_src).sum()
+        #     if loss > prev_loss:
+        #         lr /= 2
+        #         W_trg = prev_W
+        #         loss = prev_loss
+        #     elif prev_loss - loss < 0.5:
+        #         break
+        #     u, s, vt = xp.linalg.svd(W_trg)
+        #     W_trg = u.dot(vt)
 
     bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
     bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
@@ -220,10 +227,6 @@ def main(args):
             print()
             print('running epoch %d...' % epoch)
             print('threshold: %.4f' % threshold)
-
-            # update current dictionary
-            if epoch % 2 == 0 and threshold < args.threshold_valid:
-                curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
             # update W_src
             if epoch % 2 == 0:
@@ -359,6 +362,10 @@ def main(args):
             if not args.no_proj_error:
                 proj_error = xp.sum((bdi_obj.src_proj_emb[gold_dict[:, 0]] - bdi_obj.trg_proj_emb[gold_dict[:, 1]])**2)
                 print('proj error: %.4f' % proj_error)
+
+            # update current dictionary
+            if epoch % 2 == 1 and threshold < args.threshold_valid:
+                curr_dict = bdi_obj.get_bilingual_dict_with_cutoff(keep_prob=keep_prob)
 
             # update keep_prob
             keep_prob = min(1., keep_prob + args.dropout_step)
