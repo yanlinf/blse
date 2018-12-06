@@ -374,11 +374,11 @@ def main(args):
             if epoch % 2 == 1:
                 threshold = min(args.threshold_step * 2 + threshold, args.threshold)
 
-                if args.dump and threshold % 1 < args.threshold_step * 2:
+                if args.dump and threshold % 0.5 < args.threshold_step * 2:
                     export_path = args.save_path.split('-')
                     for i in range(len(export_path)):
                         if export_path[i][0] == 't':
-                            export_path[i] = 't{:d}'.format(int(threshold))
+                            export_path[i] = 't{:.1f}'.format(threshold)
                     export_path = '-'.join(export_path)
                     model = 'ubise' if args.normalize_projection else args.model
                     save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
@@ -449,6 +449,7 @@ if __name__ == '__main__':
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
     parser.add_argument('-p', '--p', type=float, default=0.7, help='parameter p')
     parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
+    parser.add_argument('--seed', type=int, default=0, help='random seed')
     # parser.add_argument('-a', '--alpha', type=float, default=0.5, help='trade-off between sentiment and alignment')
     parser.add_argument('--model', choices=['ovo', 'ovr', '0'], default='ovr', help='source objective function')
     parser.add_argument('--scorer', choices=['dot', 'euclidean'], default='dot', help='retrieval method')
@@ -578,5 +579,7 @@ if __name__ == '__main__':
             sys.exit(-1)
     else:
         xp = np
+
+    xp.random.seed(args.seed)
 
     main(args)
