@@ -31,6 +31,8 @@ def load_W_source(model_path):
 
 def main(args):
     for infile in args.W:
+        np.random.seed(args.seed)
+
         dic = load_model(infile)
         W_src = dic['W_source']
         W_trg = dic['W_target']
@@ -128,5 +130,4 @@ if __name__ == '__main__':
                         help='image format')
 
     args = parser.parse_args()
-    np.random.seed(args.seed)
     main(args)
