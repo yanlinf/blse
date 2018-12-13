@@ -84,9 +84,6 @@ def proj_l2(x, threshold=1):
 
 def inspect_matrix(X):
     u, s, vt = xp.linalg.svd(X)
-    # logging.debug('Squared F-norm: {0:.4f}'.format(float((X**2).sum())))
-    # logging.debug('Spectral norm: {0:.4f}'.format(float(s[0])))
-    # logging.debug('10th maximum singular value: {0:.4f}'.format(float(s[10])))
     print('mean singular value: {0:.4f}'.format(float(s.mean())))
     print('top 6 singular values: {0}'.format(str(s[:6])))
 
@@ -184,24 +181,6 @@ def main(args):
 
         W_trg = xp.identity(args.vector_dim, dtype=xp.float32)
         lr = args.learning_rate
-        # X_src = bdi_obj.src_proj_emb[init_dict[:, 0]]
-        # X_trg = bdi_obj.trg_emb[init_dict[:, 1]]
-        # prev_loss, loss = float('inf'), float('inf')
-        # while lr > 1e-4:
-        #     prev_W = W_trg.copy()
-        #     prev_loss = loss
-        #     grad = -2 * X_trg.T.dot(X_src)
-        #     W_trg -= lr * grad
-        #     W_trg = proj_spectral(W_trg, threshold=1)
-        #     loss = -2 * (X_trg.dot(W_trg) * X_src).sum()
-        #     if loss > prev_loss:
-        #         lr /= 2
-        #         W_trg = prev_W
-        #         loss = prev_loss
-        #     elif prev_loss - loss < 0.5:
-        #         break
-        #     u, s, vt = xp.linalg.svd(W_trg)
-        #     W_trg = u.dot(vt)
 
     bdi_obj.project(W_src, 'forward', unit_norm=args.normalize_projection)
     bdi_obj.project(W_trg, 'backward', unit_norm=args.normalize_projection, full_trg=True)
@@ -374,52 +353,17 @@ def main(args):
             if epoch % 2 == 1:
                 threshold = min(args.threshold_step * 2 + threshold, args.threshold)
 
-                if args.dump and threshold % 1 < args.threshold_step * 2:
+                if args.dump and threshold % 0.5 < args.threshold_step * 2:
                     export_path = args.save_path.split('-')
                     for i in range(len(export_path)):
                         if export_path[i][0] == 't':
-                            export_path[i] = 't{:d}'.format(int(threshold))
+                            export_path[i] = 't{:.1f}'.format(threshold)
                     export_path = '-'.join(export_path)
                     model = 'ubise' if args.normalize_projection else args.model
                     save_model(asnumpy(W_src), asnumpy(W_trg), args.source_lang,
                                args.target_lang, model, export_path,
                                alpha=args.alpha, dropout_init=args.dropout_init,
                                a=asnumpy(a), c=asnumpy(c), e=asnumpy(e), g=asnumpy(g))
-
-            # xs = np.concatenate((asnumpy(bdi_obj.src_proj_emb[train_x].sum(axis=1) / train_l[:, xp.newaxis]),
-            #                      asnumpy(bdi_obj.trg_proj_emb[dev_x].sum(axis=1) / dev_l[:, xp.newaxis])), axis=0)
-            # if epoch % 2 == 1:
-            #     clf.fit(xs, ys)
-            #     dev_f1 = clf.best_score_
-            #     print('dev_f1: {:.4f}'.format(dev_f1))
-            #     if dev_f1 > best_dev_f1:
-            #         best_W_src = W_src.copy()
-            #         best_W_trg = W_trg.copy()
-            #         best_dev_f1 = dev_f1
-
-            #     px = bdi_obj.src_proj_emb[train_x].sum(1) / train_l[:, xp.newaxis]
-            #     pz = bdi_obj.trg_proj_emb[dev_x].sum(1) / dev_l[:, xp.newaxis]
-            #     if args.binary:
-            #         xtmp = xp.stack((px[train_y == 0].mean(0),
-            #                          px[train_y == 1].mean(0),
-            #                          px.mean(0),
-            #                          pz[dev_y == 0].mean(0),
-            #                          pz[dev_y == 1].mean(0),
-            #                          pz.mean(0)), axis=0)
-            #     else:
-            #         xtmp = xp.stack((px[train_y == 0].mean(0),
-            #                          px[train_y == 1].mean(0),
-            #                          px[train_y == 2].mean(0),
-            #                          px[train_y == 3].mean(0),
-            #                          px.mean(0),
-            #                          pz[dev_y == 0].mean(0),
-            #                          pz[dev_y == 1].mean(0),
-            #                          pz[dev_y == 2].mean(0),
-            #                          pz[dev_y == 3].mean(0),
-            #                          pz.mean(0)), axis=0)
-            #     length_normalize(xtmp, inplace=True)
-            #     print('senti - distrance - matrix')
-            #     print(xtmp.dot(xtmp.T))
 
             # valiadation
             if not args.no_valiadation and (epoch + 1) % args.valiadation_step == 0 or epoch == (args.epochs - 1):
@@ -428,8 +372,6 @@ def main(args):
                 accuracy = xp.mean((val_trg_ind == gold_dict[:, 1]).astype(xp.int32))
                 print('epoch: %d   accuracy: %.4f   dict_size: %d' % (epoch, accuracy, curr_dict.shape[0]))
     finally:
-        # W_src, W_trg = best_W_src, best_W_trg
-
         # save W_src and W_trg
         if args.spectral:
             W_src = proj_spectral(W_src, threshold=args.threshold)
@@ -449,7 +391,7 @@ if __name__ == '__main__':
     parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
     parser.add_argument('-p', '--p', type=float, default=0.7, help='parameter p')
     parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
-    # parser.add_argument('-a', '--alpha', type=float, default=0.5, help='trade-off between sentiment and alignment')
+    parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--model', choices=['ovo', 'ovr', '0'], default='ovr', help='source objective function')
     parser.add_argument('--scorer', choices=['dot', 'euclidean'], default='dot', help='retrieval method')
     parser.add_argument('--senti', default='pickle/senti_opener.bin', help='sentiment vectors')
@@ -578,5 +520,7 @@ if __name__ == '__main__':
             sys.exit(-1)
     else:
         xp = np
+
+    xp.random.seed(args.seed)
 
     main(args)
