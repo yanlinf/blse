@@ -65,28 +65,47 @@ def main(args):
 
         fig, ax = plt.subplots()
 
-        X = src_proj_emb[src_word_idx]
-        ax = fig.add_subplot(121)
-        X = TSNE(2, verbose=2).fit_transform(X)
-        for i, label in enumerate(src_senti_words.labels):
-            tmp = X[src_offsets[i]:src_offsets[i + 1]]
-            ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
-        ax.legend()
-        ax.set_title(infile + '-source')
+        if args.target:
+            X = trg_proj_emb[trg_word_idx]
+            X = TSNE(2, verbose=2).fit_transform(X)
+            for i, label in enumerate(trg_senti_words.labels):
+                tmp = X[trg_offsets[i]:trg_offsets[i + 1]]
+                ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
+            ax.set_yticklabels([])
+            ax.set_xticklabels([])
 
-        X = trg_proj_emb[trg_word_idx]
-        ax = fig.add_subplot(122)
-        X = TSNE(2, verbose=2).fit_transform(X)
-        for i, label in enumerate(trg_senti_words.labels):
-            tmp = X[trg_offsets[i]:trg_offsets[i + 1]]
-            ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
-        ax.legend()
-        ax.set_title(infile + '-target')
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0 + box.height * 0.1, box.width, box.height * 0.9])
 
-        fig.set_size_inches(20, 8)
+            if args.legend:
+                ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.03), fancybox=True, shadow=True, ncol=3, prop={'size': 14})
 
-        outfile = 'result/' + infile.split('/')[-1].replace('.bin', '') + '.png'
-        fig.savefig(outfile)
+            fig.set_size_inches(8, 8)
+
+        else:
+            X = src_proj_emb[src_word_idx]
+            ax = fig.add_subplot(121)
+            X = TSNE(2, verbose=2).fit_transform(X)
+            for i, label in enumerate(src_senti_words.labels):
+                tmp = X[src_offsets[i]:src_offsets[i + 1]]
+                ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
+            ax.legend()
+            ax.set_title(infile + '-source')
+
+            X = trg_proj_emb[trg_word_idx]
+            ax = fig.add_subplot(122)
+            X = TSNE(2, verbose=2).fit_transform(X)
+            for i, label in enumerate(trg_senti_words.labels):
+                tmp = X[trg_offsets[i]:trg_offsets[i + 1]]
+                ax.scatter(tmp[:, 0], tmp[:, 1], s=10, label=label, color=COLORS[i])
+            ax.legend()
+            ax.set_title(infile + '-target')
+            ax.set_yticklabels([])
+            ax.set_xticklabels([])
+            fig.set_size_inches(20, 8)
+
+        outfile = 'result/' + infile.split('/')[-1].replace('.bin', '') + '.' + args.format
+        fig.savefig(outfile, format=args.format, bbox_inches='tight')
 
 
 if __name__ == '__main__':
@@ -98,6 +117,15 @@ if __name__ == '__main__':
                         type=int,
                         default=0,
                         help='random seed')
+    parser.add_argument('--target',
+                        action='store_true',
+                        help='plot target only')
+    parser.add_argument('--legend',
+                        action='store_true',
+                        help='legend')
+    parser.add_argument('--format',
+                        default='png',
+                        help='image format')
 
     args = parser.parse_args()
     np.random.seed(args.seed)
