@@ -145,9 +145,6 @@ def main(args):
     Nn = xp.concatenate((P, SP, SN), axis=0)
     SNn = xp.concatenate((P, SP, N), axis=0)
 
-    if args.normalize_senti:
-        length_normalize(xsenti, inplace=True)
-
     # prepare dictionaries
     gold_dict = xp.array(BilingualDict(args.gold_dictionary).get_indexed_dictionary(src_wv, trg_wv), dtype=xp.int32)
     init_dict = get_unsupervised_init_dict(src_wv.embedding, trg_wv.embedding, args.vocab_cutoff, args.csls, args.normalize, args.direction)
@@ -386,11 +383,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--target_loss', choices=['procruste', 'whitten', 'orthogonal'], default='procruste', help='target loss function')
-    parser.add_argument('--sample', choices=['uniform', 'smooth'], default='uniform', help='sampling method')
-    parser.add_argument('--smooth', type=int, default=0.5, help='smoothing power')
-    parser.add_argument('--normalize_senti', action='store_true', help='l2-normalize sentiment vectors')
     parser.add_argument('-p', '--p', type=float, default=0.7, help='parameter p')
-    parser.add_argument('-k', '--k', type=int, default=10, help='parameter k')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--model', choices=['ovo', 'ovr', '0'], default='ovr', help='source objective function')
     parser.add_argument('--scorer', choices=['dot', 'euclidean'], default='dot', help='retrieval method')
@@ -423,9 +416,6 @@ if __name__ == '__main__':
     io_group.add_argument('--pickle', action='store_true', help='load from pickled objects')
     io_group.add_argument('--save_path', default='./checkpoints/senti.bin', help='file to save W_src and W_trg')
 
-    init_group = parser.add_mutually_exclusive_group()
-    init_group.add_argument('--init_unsupervised', action='store_true', help='use unsupervised init')
-
     mapping_group = parser.add_argument_group()
     mapping_group.add_argument('--normalize', choices=['unit', 'center', 'unitdim', 'centeremb', 'none'], nargs='*', default=['center', 'unit'], help='normalization actions')
     mapping_group.add_argument('--spectral', action='store_true', help='restrict projection matrix to spectral domain')
@@ -445,9 +435,6 @@ if __name__ == '__main__':
     induction_group.add_argument('--dropout_step', type=float, default=0.1, help='increase keep_prob by a small step')
     induction_group.add_argument('--direction', choices=['forward', 'backward', 'union'], default='union', help='direction of dictionary induction')
 
-    recommend_group = parser.add_mutually_exclusive_group()
-    recommend_group.add_argument('-u', '--unsupervised', action='store_true', help='use recommended settings')
-
     lang_group = parser.add_mutually_exclusive_group()
     lang_group.add_argument('--en_es', action='store_true', help='train english-spanish embedding')
     lang_group.add_argument('--en_ca', action='store_true', help='train english-catalan embedding')
@@ -457,11 +444,10 @@ if __name__ == '__main__':
     lang_group.add_argument('--en_ja', action='store_true', help='train english-japanese embedding')
 
     args = parser.parse_args()
-    parser.set_defaults(init_unsupervised=True, csls=10, direction='union', cuda=False, normalize=['center', 'unit'],
-                        vocab_cutoff=10000, alpha=1., spectral=True,
-                        learning_rate=10000, save_path='checkpoints/ubise.bin',
-                        dropout_init=0.1, dropout_step=0.002, epochs=500, normalize_projection=False,
-                        threshold=1.0, batch_size=5000, val_batch_size=300)
+    parser.set_defaults(csls=10, direction='union', cuda=False, normalize=['unit', 'center', 'unit'],
+                        vocab_cutoff=10000, learning_rate=10000, save_path='checkpoints/ubise.bin',
+                        dropout_init=0.1, dropout_step=0.0025, epochs=1000, normalize_projection=False,
+                        threshold_init=1., threshold_step=0.005, threshold=6.0, batch_size=5000, val_batch_size=300)
 
     if args.en_es:
         src_emb_file = 'pickle/en.bin' if args.pickle else 'emb/wiki.en.vec'
