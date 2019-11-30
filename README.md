@@ -22,3 +22,6 @@ Script for learning monolingual sentiment-specific vectors.
 
 The implementation of the self-learning algorithm. It takes the monolingual sentimental vectors input and outputs two projection matrices.
 
+**dan_eval.py**
+
+Train a DAN to evaluate the projection matrices on cross-lingual sentiment analysis.
